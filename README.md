@@ -80,6 +80,32 @@ To build the app for iOS, run the following command `npx eas build -p ios`
 
 > After running the build command, you can follow the prompts to log in with your Expo account, configure the build, and upload it to the relevant store (Google Play or App Store).
 
+## How It Works (Technical Overview)
+
+This mechanism ensures that the portfolio is random, balanced, and visual, making it easy for users to explore with crypto coins in a fun way.
+
+1. **Fetching Data**: The app fetches live cryptocurrency market data from the [CoinGecko API](https://www.coingecko.com/en/api).
+   
+   The request is made to this endpoint: 
+   ```javascript 
+   const response = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=200&page=1');
+   ```
+
+2. **Selecting Random Cryptos**: Once the data is fetched, 10 random cryptocurrencies are selected from the top 200 (based on market cap).
+
+   ```javascript
+   const selectedCryptos = getRandomCryptos(cryptoData, 10);
+   ```
+
+3. **Random Number Generation**: The app then generates random numbers to distribute the total budget across the selected cryptocurrencies, ensuring that the portfolio is diversified.
+
+4. **Visualizing in Donuts**: Each coin is represented as a colorful donut chart to provide a visually appealing and simple way to view the portfolio.
+
+5. **Calculating Percentages**: The app calculates the percentage of the total budget that each cryptocurrency should take up in the portfolio.
+
+6. **Prompts**: Generation LLM prompts allow users to explore more information about each coin, enhancing the user experience.
+
+
 ## 📑 License
 
 This project is licensed under the [MIT License](LICENSE).
