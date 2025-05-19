@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "Doughfolio",
+    "slug": "doughfolio",
+    "version": "1.0.1",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#FFD8DF"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "ru.wladradchenko.doughfolio",
+      "versionCode": 4,
+      "permissions": [],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "e823962c-16e5-4582-8610-2b2a3bb14aa2"
+      }
+    },
+    "plugins": [
+      "expo-font"
+    ]
+  }
+}
