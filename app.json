@@ -1,8 +1,8 @@
 {
   "expo": {
     "name": "Doughfolio",
-    "slug": "crypto-donut",
-    "version": "1.0.1",
+    "slug": "doughfolio",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -13,7 +13,7 @@
       "supportsTablet": true
     },
     "android": {
-      "package": "com.wladradchenko.donut",
+      "package": "ru.wladradchenko.doughfolio",
       "versionCode": 4,
       "permissions": [],
       "adaptiveIcon": {
