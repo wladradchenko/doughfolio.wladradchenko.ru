@@ -9,8 +9,8 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
-  Clipboard
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import DonutChart from './src/components/DonutChart';
 import { useFont } from '@shopify/react-native-skia';
 import { useSharedValue, withTiming } from 'react-native-reanimated';
@@ -26,8 +26,18 @@ import { MaterialIcons } from '@expo/vector-icons';
 import SplashScreen from './SplashScreen';
 import { useFonts } from 'expo-font';
 import { widthPercentageToDP as wp, heightPercentageToDP as hp } from 'react-native-responsive-screen';
+import { GamificationPanel } from './src/components/GamificationPanel';
+import { useGamification } from './src/hooks/useGamification';
+import { AmountModal } from './src/components/AmountModal';
+import { PortfolioInsights } from './src/components/PortfolioInsights';
+import { CoinDetailsModal } from './src/components/CoinDetailsModal';
+import { CoinSearchModal } from './src/components/CoinSearchModal';
+import { analyzeCategories } from './src/utils/analyzeCategories';
+import { calculatePortfolioMetrics } from './src/utils/portfolioMetrics';
+import { initializeNotifications, requestNotificationPermissions } from './src/utils/notifications';
 
 interface Data {
+  id: string;
   name: string;
   symbol: string;
   value: number;
@@ -36,6 +46,17 @@ interface Data {
   image: string;
   url: string;
   decimals?: number;
+  minPrice?: number;
+  maxPrice?: number;
+  price?: number;
+  marketCap?: number;
+  marketCapChangePercentage24h?: number;
+  priceChangePercentage24h?: number;
+  circulatingSupply?: number;
+  maxSupply?: number;
+  totalVolume?: number;
+  marketCapRank?: number;
+  categories?: string[];
 }
 
 const RADIUS = 160;
@@ -98,23 +119,96 @@ const DonutChartContainer = () => {
   const decimals = useSharedValue<number[]>([]);
   const colors = generateRandomColor(n);
   const [amount, setAmount] = useState(1000); // State to manage the input value
-  const { history, addToHistory, clearHistory } = useHistory();
+  const { history, addToHistory, clearHistory, removeFromHistory } = useHistory();
   const [isHistoryVisible, setHistoryVisible] = useState(false);
   const [isPromptVisible, setPromptVisible] = useState(false);
+  const [isAmountModalVisible, setAmountModalVisible] = useState(false);
+  const [isInsightsExpanded, setInsightsExpanded] = useState(false);
+  const [selectedCoin, setSelectedCoin] = useState<{ id: string; name: string; symbol: string; image: string } | null>(null);
   const [disclaimerShown, setDisclaimerShown] = useState(false);
+  const [isArcadeExpanded, setArcadeExpanded] = useState(true);
+  const [isCoinSearchVisible, setCoinSearchVisible] = useState(false);
+  const [selectedCoins, setSelectedCoins] = useState<Array<{ id: string; name: string; symbol: string; image: string; market_cap_rank?: number }>>([]);
+  const [notificationsInitialized, setNotificationsInitialized] = useState(false);
+  const [isFromHistory, setIsFromHistory] = useState(false);
+
+  // Инициализация картинок пончиков при загрузке компонента
+  useEffect(() => {
+    setImages(getShuffledDonutImages());
+  }, []);
+
+  // Инициализация уведомлений при первом запуске
+  useEffect(() => {
+    if (!notificationsInitialized) {
+      requestNotificationPermissions().then((granted) => {
+        if (granted) {
+          initializeNotifications();
+        }
+        setNotificationsInitialized(true);
+      });
+    }
+  }, [notificationsInitialized]);
+  const {
+    missions,
+    flavors,
+    registerMixEvent,
+    resetGamification,
+    totalMixes,
+    dailyMixes,
+    wallet,
+    xp,
+    level,
+    streakCount,
+    boostWallet,
+    lastPortfolio,
+  } = useGamification();
 
   // Функция для получения данных с CoinGecko API
   async function fetchCryptoData() {
-    const response = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=200&page=1');
-    const data = await response.json();
-    return data;
+    try {
+      const page = Math.floor(Math.random() * 50) + 1;
+      const response = await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=200&page=${page}`);
+      if (!response.ok) {
+        return [];
+      }
+      const data = await response.json();
+      if (!Array.isArray(data) || data.length === 0) {
+        return [];
+      }
+      return data;
+    } catch (error) {
+      return [];
+    }
   }
 
-  // Функция для случайного выбора 10 криптовалют
+  // Функция для случайного выбора криптовалют
   function getRandomCryptos(data, count = 10, maxIndex = 200) {
     const minSlice = Math.floor(Math.random() * (maxIndex - count + 1));  // from 0 to 90
     const maxSlice = minSlice + count;
     return data.slice(minSlice, maxSlice);
+  }
+
+  // Функция для получения данных монет по ID из CoinGecko
+  async function fetchCoinsByIds(coinIds: string[]) {
+    if (coinIds.length === 0) return [];
+    
+    try {
+      const ids = coinIds.join(',');
+      const response = await fetch(
+        `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&per_page=250&page=1`
+      );
+      if (!response.ok) {
+        return [];
+      }
+      const data = await response.json();
+      if (!Array.isArray(data) || data.length === 0) {
+        return [];
+      }
+      return data;
+    } catch (error) {
+      console.error('Error fetching coins by IDs:', error);
+      return [];
+    }
   }
 
    const handleHistorySelect = (item: any) => {
@@ -123,6 +217,46 @@ const DonutChartContainer = () => {
     totalValue.value = withTiming(item.totalValue, { duration: 500 });
     // Пересчитываем проценты
     decimals.value = item.data.map(crypto => crypto.percentage / 100);
+    // Обновляем картинки при загрузке из истории
+    setImages(getShuffledDonutImages());
+    // Помечаем, что портфель загружен из истории
+    setIsFromHistory(true);
+  };
+
+  // Функция для сохранения текущего портфеля в историю
+  const handleSavePortfolio = async () => {
+    if (data.length === 0) {
+      Alert.alert('No portfolio', 'Please generate a portfolio first');
+      return;
+    }
+    const currentTotal = data.reduce((sum, item) => sum + item.value, 0);
+    await addToHistory(data);
+    Alert.alert('Saved!', 'Portfolio has been saved to history');
+  };
+
+  // Функция для удаления пончика с перерасчетом процентов
+  const handleRemoveCoin = (indexToRemove: number) => {
+    if (data.length <= 1) {
+      Alert.alert('Cannot remove', 'Portfolio must have at least one coin');
+      return;
+    }
+
+    const newData = data.filter((_, index) => index !== indexToRemove);
+    const newTotal = newData.reduce((sum, item) => sum + item.value, 0);
+    
+    // Пересчитываем проценты
+    const recalculatedData = newData.map(item => {
+      const newPercentage = (item.value / newTotal) * 100;
+      return {
+        ...item,
+        percentage: Number(newPercentage.toFixed(2)),
+        decimals: newPercentage / 100,
+      };
+    });
+
+    setData(recalculatedData);
+    totalValue.value = withTiming(newTotal, { duration: 500 });
+    decimals.value = recalculatedData.map(crypto => crypto.percentage / 100);
   };
 
   // Function to handle slider value change
@@ -160,11 +294,43 @@ const DonutChartContainer = () => {
     try {
       setImages(getShuffledDonutImages());
 
-      // Шаг 1: Получаем данные с API
-      const cryptoData = await fetchCryptoData();
+      let selectedCryptos: any[] = [];
+      const coinsNeeded = n;
 
-      // Шаг 2: Случайным образом выбираем 10 криптовалют
-      const selectedCryptos = getRandomCryptos(cryptoData, 10);
+      // Если есть выбранные монеты, используем их + дополняем рандомными
+      if (selectedCoins.length > 0) {
+        // Получаем данные для выбранных монет
+        const selectedCoinsData = await fetchCoinsByIds(selectedCoins.map(c => c.id));
+        
+        // Если нужно больше монет, дополняем рандомными
+        if (selectedCoinsData.length < coinsNeeded) {
+          const cryptoData = await fetchCryptoData();
+          if (cryptoData && Array.isArray(cryptoData) && cryptoData.length > 0) {
+            // Исключаем уже выбранные монеты
+            const selectedIds = new Set(selectedCoinsData.map(c => c.id));
+            const availableCryptos = cryptoData.filter(c => !selectedIds.has(c.id));
+            const randomCount = coinsNeeded - selectedCoinsData.length;
+            const randomCryptos = getRandomCryptos(availableCryptos, randomCount, availableCryptos.length);
+            selectedCryptos = [...selectedCoinsData, ...randomCryptos];
+          } else {
+            selectedCryptos = selectedCoinsData;
+          }
+        } else {
+          selectedCryptos = selectedCoinsData.slice(0, coinsNeeded);
+        }
+      } else {
+        // Обычный режим: только рандомные монеты
+        const cryptoData = await fetchCryptoData();
+        if (!cryptoData || !Array.isArray(cryptoData) || cryptoData.length === 0) {
+          return;
+        }
+        selectedCryptos = getRandomCryptos(cryptoData, coinsNeeded);
+      }
+
+      if (selectedCryptos.length === 0) {
+        Alert.alert('Error', 'Could not fetch cryptocurrency data. Please try again.');
+        return;
+      }
 
 
       // Шаг 3: Генерируем случайные числа для распределения весов
@@ -190,6 +356,7 @@ const DonutChartContainer = () => {
 
       // Генерируем массив объектов с данными
       const arrayOfObjects = generateNumbers.map((value, index) => ({
+        id: selectedCryptos[index].id,
         name: selectedCryptos[index].name,
         image: selectedCryptos[index].image,
         symbol: selectedCryptos[index].symbol,
@@ -202,16 +369,42 @@ const DonutChartContainer = () => {
         circulatingSupply: selectedCryptos[index].circulating_supply,
         maxSupply: selectedCryptos[index].max_supply,
         totalVolume: selectedCryptos[index].total_volume,
+        marketCapRank: selectedCryptos[index].market_cap_rank,
         value,
         percentage: generatePercentages[index],
         decimals: generateDecimals[index] / 100,
         color: colors[index], // Генерация случайного цвета
         url: 'https://www.coingecko.com/en/coins/' + selectedCryptos[index].id,
+        categories: [], // Будет загружено позже
       }));
 
+      // Загружаем категории для каждой монеты (параллельно, но с ограничением)
+      const coinsWithCategories = await Promise.all(
+        arrayOfObjects.map(async (coin) => {
+          try {
+            const response = await fetch(
+              `https://api.coingecko.com/api/v3/coins/${coin.id}?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false&sparkline=false`
+            );
+            if (response.ok) {
+              const coinData = await response.json();
+              return {
+                ...coin,
+                categories: coinData.categories || [],
+              };
+            }
+          } catch (error) {
+            console.error(`Failed to load categories for ${coin.id}:`, error);
+          }
+          return coin;
+        })
+      );
+
       // Выводим данные в консоль (можно заменить на setData(arrayOfObjects); если используете React)
-      setData(arrayOfObjects);
-      await addToHistory(arrayOfObjects); // Сохраняем данные + общую сумму
+      setData(coinsWithCategories);
+      // Убрали автоматическое сохранение - теперь пользователь сохраняет вручную
+      registerMixEvent({ totalValue: total, portfolio: coinsWithCategories });
+      // Помечаем, что это новый сгенерированный портфель
+      setIsFromHistory(false);
     } catch (error) {
       console.error('Ошибка при генерации данных:', error);
     }
@@ -227,18 +420,22 @@ const DonutChartContainer = () => {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
-        contentContainerStyle={{ alignItems: 'center' }}
+        contentContainerStyle={{ alignItems: 'center', paddingBottom: hp('10%') }}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        decelerationRate="normal"
+        snapToAlignment="start"
+        snapToInterval={undefined}
       >
         <View style={[styles.general]}>
-          <Text style={[styles.label, {color: 'black'}]}>Enter amount: $</Text>
-          <TextInput
-            style={[styles.input]}
-            value={amount.toString()}
-            onChangeText={handleInputChange}
-            keyboardType='numeric'
-            placeholder='100 - 1000'
-          />
+          <Text style={[styles.label, {color: 'black'}]}>Portfolio amount:</Text>
+          <TouchableOpacity
+            onPress={() => setAmountModalVisible(true)}
+            style={styles.amountButton}
+          >
+            <Text style={styles.amountButtonText}>${amount.toLocaleString()}</Text>
+            <MaterialIcons name="edit" size={wp('4%')} color="#FF6E76" />
+          </TouchableOpacity>
       </View>
 
       <View style={{ flexDirection: 'row', justifyContent: 'center', padding: 10 }}>
@@ -272,9 +469,67 @@ const DonutChartContainer = () => {
         <TouchableOpacity onPress={generateData}>
           <Text style={[styles.buttonText, styles.button3d]}>Mix the Dough</Text>
         </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: wp('2%'), marginBottom: hp('5.71%') }}>
+          <TouchableOpacity
+            onPress={() => setCoinSearchVisible(true)}
+            style={[styles.addCoinsButton, selectedCoins.length > 0 && styles.addCoinsButtonActive]}
+          >
+            <MaterialIcons 
+              name={selectedCoins.length > 0 ? "check-circle" : "add-circle-outline"} 
+              size={wp('4.5%')} 
+              color={selectedCoins.length > 0 ? "#FFFFFF" : "#FF6E76"} 
+            />
+            <Text style={[styles.addCoinsText, selectedCoins.length > 0 && styles.addCoinsTextActive]}>
+              {selectedCoins.length > 0 ? `${selectedCoins.length} Selected` : 'Add Coins'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {data.length > 0 && (
+          <View style={styles.panelWrapper}>
+            <PortfolioInsights
+              categories={analyzeCategories(data)}
+              metrics={calculatePortfolioMetrics(data)}
+              expanded={isInsightsExpanded}
+              onToggle={() => setInsightsExpanded(prev => !prev)}
+            />
+          </View>
+        )}
+
+        <View style={styles.panelWrapper}>
+          <GamificationPanel
+            missions={missions}
+            flavors={flavors}
+            expanded={isArcadeExpanded}
+            onToggle={() => setArcadeExpanded(prev => !prev)}
+            onReset={resetGamification}
+            totalMixes={totalMixes}
+            dailyMixes={dailyMixes}
+            wallet={wallet}
+            level={level}
+            xp={xp}
+            streakCount={streakCount}
+            onBoost={boostWallet}
+            lastPortfolio={lastPortfolio}
+          />
+        </View>
         {data.map((item, index) => (
-          <RenderItem item={item} key={index} index={index} donutImages={images} />
+          <RenderItem
+            item={item}
+            key={`${item.id}-${index}`}
+            index={index}
+            donutImages={images}
+            onPress={(coin) => setSelectedCoin({ id: coin.id, name: coin.name, symbol: coin.symbol, image: coin.image })}
+            onRemove={() => handleRemoveCoin(index)}
+            showRemoveButton={!isFromHistory}
+          />
         ))}
+        {data.length > 0 && !isFromHistory && (
+          <TouchableOpacity onPress={handleSavePortfolio} style={styles.saveButton}>
+            <MaterialIcons name="save" size={wp('5%')} color="#FFFFFF" />
+            <Text style={styles.saveButtonText}>Save Portfolio</Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
       <StatusBar style="auto" />
 
@@ -285,23 +540,61 @@ const DonutChartContainer = () => {
         onSelect={handleHistorySelect}
         onClear={async () => {
           await clearHistory();
+        }}
+        onRemove={async (index) => {
+          await removeFromHistory(index);
         }}/>
 
       <PromptModal
         visible={isPromptVisible}
         data={data}
         onClose={() => setPromptVisible(false)}
-        onCopy={(text) => Clipboard.setString(text)}
+        onCopy={async (text) => {
+          await Clipboard.setStringAsync(text);
+        }}
+      />
+
+      <AmountModal
+        visible={isAmountModalVisible}
+        currentAmount={amount}
+        onClose={() => setAmountModalVisible(false)}
+        onConfirm={(newAmount) => setAmount(newAmount)}
+      />
+
+      <CoinDetailsModal
+        visible={selectedCoin !== null}
+        coinId={selectedCoin?.id || ''}
+        coinName={selectedCoin?.name || ''}
+        coinSymbol={selectedCoin?.symbol || ''}
+        coinImage={selectedCoin?.image || ''}
+        onClose={() => setSelectedCoin(null)}
+      />
+
+      <CoinSearchModal
+        visible={isCoinSearchVisible}
+        onClose={() => setCoinSearchVisible(false)}
+        onSelectCoins={(coins) => setSelectedCoins(coins)}
+        selectedCoins={selectedCoins}
       />
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  general: {color: 'white', flexDirection: 'row', alignItems: 'center', marginLeft: wp('9.09%'), marginTop: hp('9.52%'), marginBottom: hp('0.952%')},
+  general: {color: 'white', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginLeft: wp('9.09%'), marginRight: wp('9.09%'), marginTop: hp('9.52%'), marginBottom: hp('0.952%')},
   input: {color: 'black', fontSize: wp('4.36%'), fontWeight: '700'},
   label: {
     fontSize: wp('4.36%'), fontWeight: '700'
+  },
+  amountButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: wp('1%'),
+  },
+  amountButtonText: {
+    color: '#FF6E76',
+    fontSize: wp('4.5%'),
+    fontWeight: '700',
   },
   promptButton: {
     backgroundColor: 'white',
@@ -369,7 +662,7 @@ const styles = StyleSheet.create({
 
     paddingHorizontal: wp('12.72%'),
     paddingVertical: hp('2%'),
-    marginBottom: hp('5.71%'),
+    marginBottom: hp('1%'),
     alignItems: 'center',
     justifyContent: 'center'
   },
@@ -384,6 +677,60 @@ const styles = StyleSheet.create({
     color: 'black',
     textTransform: 'uppercase',
     fontSize: wp('4.72%'),
+    fontWeight: 'bold',
+  },
+  panelWrapper: {
+    width: '100%',
+    alignItems: 'center',
+  },
+  addCoinsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.2%'),
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: '#FF6E76',
+    shadowColor: '#000',
+    shadowOffset: { width: 2, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  addCoinsButtonActive: {
+    backgroundColor: '#FF6E76',
+    borderColor: '#FF6E76',
+  },
+  addCoinsText: {
+    marginLeft: wp('2%'),
+    fontSize: wp('3.8%'),
+    fontWeight: '600',
+    color: '#FF6E76',
+  },
+  addCoinsTextActive: {
+    color: '#FFFFFF',
+  },
+  saveButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FF6E76',
+    paddingHorizontal: wp('8%'),
+    paddingVertical: hp('2%'),
+    borderRadius: 25,
+    marginTop: hp('2%'),
+    marginBottom: hp('3%'),
+    shadowColor: '#000',
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+    gap: wp('2%'),
+  },
+  saveButtonText: {
+    color: '#FFFFFF',
+    fontSize: wp('4.5%'),
     fontWeight: 'bold',
   },
 });

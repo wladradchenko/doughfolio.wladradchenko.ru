@@ -9,7 +9,18 @@ export function generateRandomNumbers(n: number, maxTotal: number): number[] {
 
   for (let i = 0; i < n; i++) {
     // Calculate max value for this position
-    const maxValueForThisPosition = Math.min(max, maxTotal - sum - (n - i - 1) * min);
+    const remaining = maxTotal - sum;
+    const remainingSlots = n - i;
+    
+    // If this is the last number, use all remaining to ensure we hit maxTotal
+    if (i === n - 1) {
+      const lastNumber = Math.max(min, Math.min(max, remaining));
+      result.push(lastNumber);
+      sum += lastNumber;
+      break;
+    }
+    
+    const maxValueForThisPosition = Math.min(max, remaining - (remainingSlots - 1) * min);
     const randomNumber = Math.floor(Math.random() * (maxValueForThisPosition - min + 1)) + min;
 
     if (isNaN(randomNumber)) {
@@ -19,15 +30,12 @@ export function generateRandomNumbers(n: number, maxTotal: number): number[] {
     
     result.push(randomNumber);
     sum += randomNumber;
-
-    // Stop if the total sum is close to maxTotal
-    if (sum >= maxTotal) break;
   }
 
-  // Adjust the last number to make sure the sum does not exceed maxTotal
-  if (sum > maxTotal) {
-    const excess = sum - maxTotal;
-    result[result.length - 1] -= excess;
+  // Adjust the last number to make sure the sum equals maxTotal (or very close)
+  const difference = maxTotal - sum;
+  if (difference !== 0 && result.length > 0) {
+    result[result.length - 1] = Math.max(min, result[result.length - 1] + difference);
   }
 
   return result;

@@ -2,8 +2,10 @@ import {StyleSheet, Text, Image, View, useWindowDimensions, Linking, TouchableOp
 import React from 'react';
 import Animated, {FadeInDown, FadeOutDown} from 'react-native-reanimated';
 import { widthPercentageToDP as wp, heightPercentageToDP as hp } from 'react-native-responsive-screen';
+import { MaterialIcons } from '@expo/vector-icons';
 
 interface Data {
+  id: string;
   name: string;
   symbol: string;
   value: number;
@@ -18,6 +20,9 @@ type Props = {
   item: Data;
   index: number;
   donutImages: any[];
+  onPress?: (item: Data) => void;
+  onRemove?: () => void;
+  showRemoveButton?: boolean;
 };
 
 const getRandomRotation = () => {
@@ -26,13 +31,25 @@ const getRandomRotation = () => {
 };
 
 
-const RenderItem = ({item, index, donutImages}: Props) => {
+const RenderItem = ({item, index, donutImages, onPress, onRemove, showRemoveButton}: Props) => {
   const {width} = useWindowDimensions();
   const donutImage = donutImages[index % donutImages.length]
   const handlePress = () => {
-    // Open the URL in the browser
-    Linking.openURL(item.url).catch(err => console.error("Failed to open URL:", err));
+    if (onPress) {
+      onPress(item);
+    } else {
+      // Fallback: Open the URL in the browser
+      Linking.openURL(item.url).catch(err => console.error("Failed to open URL:", err));
+    }
   };
+
+  const handleRemove = (e: any) => {
+    e.stopPropagation();
+    if (onRemove) {
+      onRemove();
+    }
+  };
+
   // If horizontal backgroundColor: 'transparent' else vertical backgroundColor: '#FFD8DF'
   
   return (
@@ -41,6 +58,14 @@ const RenderItem = ({item, index, donutImages}: Props) => {
         style={[styles.container, { width: width * 0.8, marginLeft: wp('5.45%'), overflow: 'visible', position: 'relative' }]}
         entering={FadeInDown.delay(index * 200)}
         exiting={FadeOutDown}>
+        {showRemoveButton && onRemove && (
+          <TouchableOpacity 
+            onPress={handleRemove}
+            style={styles.removeButton}
+          >
+            <MaterialIcons name="close" size={wp('4%')} color="#FFFFFF" />
+          </TouchableOpacity>
+        )}
         <View style={[styles.contentContainer, { flexDirection: 'row', justifyContent: 'flex-start', gap: 20 }]}>
           <View style={{position: 'absolute', left: -wp('12.72%'), zIndex: 1, transform: [{ rotate: getRandomRotation() }]}}>
             <Image 
@@ -111,5 +136,22 @@ const styles = StyleSheet.create({
     fontSize: wp('7.27%'),
     fontWeight: 'bold',
     color: 'black',
+  },
+  removeButton: {
+    position: 'absolute',
+    top: -wp('2%'),
+    right: -wp('2%'),
+    backgroundColor: '#FF6E76',
+    borderRadius: wp('4%'),
+    width: wp('8%'),
+    height: wp('8%'),
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
   },
 });

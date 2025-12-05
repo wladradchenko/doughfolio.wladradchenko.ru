@@ -63,9 +63,21 @@ export const useHistory = () => {
     }
   };
 
+  const removeFromHistory = async (index: number) => {
+    try {
+      const updatedHistory = history.filter((_, i) => i !== index);
+      await AsyncStorage.setItem('cryptoDonutHistory', JSON.stringify(updatedHistory));
+      setHistory(updatedHistory);
+      return true;
+    } catch (e) {
+      console.error('Failed to remove from history', e);
+      return false;
+    }
+  };
+
   useEffect(() => {
     loadHistory();
   }, []);
 
-  return { history, addToHistory, clearHistory };
+  return { history, addToHistory, clearHistory, removeFromHistory };
 };
