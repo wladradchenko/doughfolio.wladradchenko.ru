@@ -15,6 +15,7 @@
     "android": {
       "package": "ru.wladradchenko.doughfolio",
       "versionCode": 4,
+      "targetSdkVersion": 35,
       "permissions": [],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -34,3 +35,4 @@
     ]
   }
 }
+
