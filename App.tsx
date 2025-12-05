@@ -1,5 +1,5 @@
 /* eslint-disable react-native/no-inline-styles */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import {
   StyleSheet,
@@ -9,6 +9,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import DonutChart from './src/components/DonutChart';
@@ -28,6 +29,7 @@ import { useFonts } from 'expo-font';
 import { widthPercentageToDP as wp, heightPercentageToDP as hp } from 'react-native-responsive-screen';
 import { GamificationPanel } from './src/components/GamificationPanel';
 import { useGamification } from './src/hooks/useGamification';
+import { getCachedCoinList, cacheCoinList, addCoinsToCache, clearAllCache } from './src/utils/coinCache';
 import { AmountModal } from './src/components/AmountModal';
 import { PortfolioInsights } from './src/components/PortfolioInsights';
 import { CoinDetailsModal } from './src/components/CoinDetailsModal';
@@ -131,8 +133,20 @@ const DonutChartContainer = () => {
   const [selectedCoins, setSelectedCoins] = useState<Array<{ id: string; name: string; symbol: string; image: string; market_cap_rank?: number }>>([]);
   const [notificationsInitialized, setNotificationsInitialized] = useState(false);
   const [isFromHistory, setIsFromHistory] = useState(false);
+  const [loadingCoins, setLoadingCoins] = useState<Array<{ id: string; name: string; symbol: string; image: string }>>([]);
+  const selectedCoinsRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Инициализация картинок пончиков при загрузке компонента
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (selectedCoinsRetryTimerRef.current) {
+        clearTimeout(selectedCoinsRetryTimerRef.current);
+        selectedCoinsRetryTimerRef.current = null;
+      }
+    };
+  }, []);
+
   useEffect(() => {
     setImages(getShuffledDonutImages());
   }, []);
@@ -166,6 +180,14 @@ const DonutChartContainer = () => {
   // Функция для получения данных с CoinGecko API
   async function fetchCryptoData() {
     try {
+      // Check cache first
+      const cachedData = await getCachedCoinList();
+      if (cachedData && cachedData.length > 0) {
+        // Use cached data - randomness is preserved by selecting random coins from the list
+        return cachedData;
+      }
+
+      // If no cache, fetch from API with random page
       const page = Math.floor(Math.random() * 50) + 1;
       const response = await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=200&page=${page}`);
       if (!response.ok) {
@@ -175,6 +197,10 @@ const DonutChartContainer = () => {
       if (!Array.isArray(data) || data.length === 0) {
         return [];
       }
+      
+      // Cache the fetched data for 1 day
+      await cacheCoinList(data);
+      
       return data;
     } catch (error) {
       return [];
@@ -188,25 +214,98 @@ const DonutChartContainer = () => {
     return data.slice(minSlice, maxSlice);
   }
 
-  // Функция для получения данных монет по ID из CoinGecko
-  async function fetchCoinsByIds(coinIds: string[]) {
+  // Функция для получения данных монет по ID из CoinGecko с retry при rate limit
+  async function fetchCoinsByIds(coinIds: string[], attempt: number = 0): Promise<any[]> {
     if (coinIds.length === 0) return [];
     
+    const maxRetries = 5;
+    const retryDelay = 60000; // 60 seconds
+
     try {
       const ids = coinIds.join(',');
       const response = await fetch(
         `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&per_page=250&page=1`
       );
-      if (!response.ok) {
-        return [];
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data) && data.length > 0) {
+          // Add fetched coins to cache
+          await addCoinsToCache(data);
+          
+          // Remove loaded coins from loadingCoins
+          setLoadingCoins(prev => prev.filter(coin => !coinIds.includes(coin.id)));
+          
+          if (selectedCoinsRetryTimerRef.current) {
+            clearTimeout(selectedCoinsRetryTimerRef.current);
+            selectedCoinsRetryTimerRef.current = null;
+          }
+          
+          // If we have a portfolio, add these coins to it
+          setData(currentPortfolio => {
+            if (currentPortfolio.length > 0 && data.length > 0) {
+              // Calculate average value per coin in current portfolio
+              const currentTotal = currentPortfolio.reduce((sum, item) => sum + item.value, 0);
+              const avgValuePerCoin = currentTotal / currentPortfolio.length;
+              
+              // Add loaded coins to current portfolio
+              const newCoins = data.map(coin => {
+                const value = avgValuePerCoin;
+                return {
+                  id: coin.id,
+                  name: coin.name,
+                  symbol: coin.symbol,
+                  value: value,
+                  percentage: 0, // Will be recalculated
+                  color: generateRandomColor(1)[0],
+                  image: coin.image,
+                  url: `https://www.coingecko.com/en/coins/${coin.id}`,
+                  decimals: 0,
+                };
+              });
+              
+              // Update portfolio with new coins
+              const updatedData = [...currentPortfolio, ...newCoins];
+              const newTotal = updatedData.reduce((sum, item) => sum + item.value, 0);
+              const recalculatedData = updatedData.map(item => ({
+                ...item,
+                percentage: Number(((item.value / newTotal) * 100).toFixed(2)),
+                decimals: item.value / newTotal,
+              }));
+              
+              totalValue.value = withTiming(newTotal, { duration: 500 });
+              decimals.value = recalculatedData.map(crypto => crypto.percentage / 100);
+              
+              return recalculatedData;
+            }
+            return currentPortfolio;
+          });
+          
+          return data;
+        }
       }
-      const data = await response.json();
-      if (!Array.isArray(data) || data.length === 0) {
-        return [];
+
+      // If rate limit (429) or server error (500+), retry
+      if ((response.status === 429 || response.status >= 500) && attempt < maxRetries) {
+        // Retry after 60 seconds
+        selectedCoinsRetryTimerRef.current = setTimeout(() => {
+          fetchCoinsByIds(coinIds, attempt + 1);
+        }, retryDelay);
+        return []; // Return empty for now, will retry
       }
-      return data;
+
+      // Other errors or max retries reached
+      setLoadingCoins(prev => prev.filter(coin => !coinIds.includes(coin.id)));
+      return [];
     } catch (error) {
-      console.error('Error fetching coins by IDs:', error);
+      // Network errors - retry if we haven't exceeded max retries
+      if (attempt < maxRetries) {
+        selectedCoinsRetryTimerRef.current = setTimeout(() => {
+          fetchCoinsByIds(coinIds, attempt + 1);
+        }, retryDelay);
+        return [];
+      }
+      setLoadingCoins(prev => prev.filter(coin => !coinIds.includes(coin.id)));
       return [];
     }
   }
@@ -293,30 +392,55 @@ const DonutChartContainer = () => {
     
     try {
       setImages(getShuffledDonutImages());
+      setLoadingCoins([]); // Очищаем загружающиеся монеты при новой генерации
 
       let selectedCryptos: any[] = [];
       const coinsNeeded = n;
 
       // Если есть выбранные монеты, используем их + дополняем рандомными
       if (selectedCoins.length > 0) {
-        // Получаем данные для выбранных монет
+        // Сначала проверяем кеш для выбранных монет
+        const cachedData = await getCachedCoinList();
+        const cachedSelectedCoins = cachedData ? cachedData.filter(c => selectedCoins.some(sc => sc.id === c.id)) : [];
+        
+        // Получаем данные для выбранных монет (с retry при rate limit)
         const selectedCoinsData = await fetchCoinsByIds(selectedCoins.map(c => c.id));
         
+        // Определяем какие монеты загружены, а какие еще загружаются
+        const loadedCoinIds = new Set(selectedCoinsData.map(c => c.id));
+        const loadingCoinIds = selectedCoins.filter(sc => !loadedCoinIds.has(sc.id) && !cachedSelectedCoins.some(c => c.id === sc.id));
+        
+        // Устанавливаем загружающиеся монеты для отображения
+        if (loadingCoinIds.length > 0) {
+          setLoadingCoins(loadingCoinIds.map(sc => ({
+            id: sc.id,
+            name: sc.name,
+            symbol: sc.symbol,
+            image: sc.image,
+          })));
+        }
+        
+        // Если данные загружены, используем их, иначе используем из кеша если есть
+        const finalSelectedCoins = selectedCoinsData.length > 0 ? selectedCoinsData : cachedSelectedCoins;
+        
+        // Количество монет для основного портфеля = 10 - количество загружающихся
+        const availableSlots = coinsNeeded - loadingCoinIds.length;
+        
         // Если нужно больше монет, дополняем рандомными
-        if (selectedCoinsData.length < coinsNeeded) {
+        if (finalSelectedCoins.length < availableSlots) {
           const cryptoData = await fetchCryptoData();
           if (cryptoData && Array.isArray(cryptoData) && cryptoData.length > 0) {
-            // Исключаем уже выбранные монеты
-            const selectedIds = new Set(selectedCoinsData.map(c => c.id));
+            // Исключаем уже выбранные монеты и загружающиеся
+            const selectedIds = new Set([...finalSelectedCoins.map(c => c.id), ...loadingCoinIds.map(c => c.id)]);
             const availableCryptos = cryptoData.filter(c => !selectedIds.has(c.id));
-            const randomCount = coinsNeeded - selectedCoinsData.length;
+            const randomCount = availableSlots - finalSelectedCoins.length;
             const randomCryptos = getRandomCryptos(availableCryptos, randomCount, availableCryptos.length);
-            selectedCryptos = [...selectedCoinsData, ...randomCryptos];
+            selectedCryptos = [...finalSelectedCoins, ...randomCryptos];
           } else {
-            selectedCryptos = selectedCoinsData;
+            selectedCryptos = finalSelectedCoins;
           }
         } else {
-          selectedCryptos = selectedCoinsData.slice(0, coinsNeeded);
+          selectedCryptos = finalSelectedCoins.slice(0, availableSlots);
         }
       } else {
         // Обычный режим: только рандомные монеты
@@ -354,29 +478,50 @@ const DonutChartContainer = () => {
 
       decimals.value = [...generateDecimals];
 
+      // Фильтруем валидные монеты и убираем дубликаты по id
+      const seenIds = new Set<string>();
+      const validSelectedCryptos = selectedCryptos.filter(c => {
+        if (!c || !c.id) return false;
+        if (seenIds.has(c.id)) return false;
+        seenIds.add(c.id);
+        return true;
+      });
+      
+      if (validSelectedCryptos.length === 0) {
+        Alert.alert('Error', 'No valid cryptocurrency data available. Please try again.');
+        return;
+      }
+      
       // Генерируем массив объектов с данными
-      const arrayOfObjects = generateNumbers.map((value, index) => ({
-        id: selectedCryptos[index].id,
-        name: selectedCryptos[index].name,
-        image: selectedCryptos[index].image,
-        symbol: selectedCryptos[index].symbol,
-        minPrice: selectedCryptos[index].ath,
-        maxPrice: selectedCryptos[index].atl,
-        price: selectedCryptos[index].current_price,
-        marketCap: selectedCryptos[index].market_cap,
-        marketCapChangePercentage24h: selectedCryptos[index].market_cap_change_percentage_24h,
-        priceChangePercentage24h: selectedCryptos[index].price_change_percentage_24h,
-        circulatingSupply: selectedCryptos[index].circulating_supply,
-        maxSupply: selectedCryptos[index].max_supply,
-        totalVolume: selectedCryptos[index].total_volume,
-        marketCapRank: selectedCryptos[index].market_cap_rank,
-        value,
-        percentage: generatePercentages[index],
-        decimals: generateDecimals[index] / 100,
-        color: colors[index], // Генерация случайного цвета
-        url: 'https://www.coingecko.com/en/coins/' + selectedCryptos[index].id,
-        categories: [], // Будет загружено позже
-      }));
+      const arrayOfObjects = generateNumbers.map((value, index) => {
+        const crypto = validSelectedCryptos[index] || validSelectedCryptos[validSelectedCryptos.length - 1];
+        if (!crypto || !crypto.id) {
+          throw new Error('No valid cryptocurrency data available');
+        }
+        return {
+          id: crypto.id,
+          name: crypto.name || 'Unknown',
+          image: crypto.image || '',
+          symbol: crypto.symbol || 'UNK',
+          minPrice: crypto.ath || 0,
+          maxPrice: crypto.atl || 0,
+          price: crypto.current_price || 0,
+          marketCap: crypto.market_cap || 0,
+          marketCapChangePercentage24h: crypto.market_cap_change_percentage_24h || 0,
+          priceChangePercentage24h: crypto.price_change_percentage_24h || 0,
+          circulatingSupply: crypto.circulating_supply || 0,
+          maxSupply: crypto.max_supply || 0,
+          totalSupply: crypto.total_supply || 0,
+          totalVolume: crypto.total_volume || 0,
+          marketCapRank: crypto.market_cap_rank || 0,
+          value,
+          percentage: generatePercentages[index] || 0,
+          decimals: (generateDecimals[index] || 0) / 100,
+          color: colors[index] || generateRandomColor(1)[0],
+          url: 'https://www.coingecko.com/en/coins/' + crypto.id,
+          categories: [], // Будет загружено позже
+        };
+      });
 
       // Загружаем категории для каждой монеты (параллельно, но с ограничением)
       const coinsWithCategories = await Promise.all(
@@ -524,6 +669,32 @@ const DonutChartContainer = () => {
             showRemoveButton={!isFromHistory}
           />
         ))}
+        
+        {/* Loading coins - показываем отдельно ниже основных пончиков */}
+        {loadingCoins.length > 0 && loadingCoins.map((loadingCoin, index) => {
+          const loadingItem = {
+            id: loadingCoin.id,
+            name: loadingCoin.name,
+            symbol: loadingCoin.symbol,
+            value: 0,
+            percentage: 0,
+            color: generateRandomColor(1)[0],
+            image: loadingCoin.image,
+            url: `https://www.coingecko.com/en/coins/${loadingCoin.id}`,
+            decimals: 0,
+          };
+          return (
+            <RenderItem
+              item={loadingItem}
+              key={`loading-${loadingCoin.id}-${index}`}
+              index={data.length + index}
+              donutImages={images}
+              onPress={(coin) => setSelectedCoin({ id: coin.id, name: coin.name, symbol: coin.symbol, image: coin.image })}
+              isLoading={true}
+            />
+          );
+        })}
+        
         {data.length > 0 && !isFromHistory && (
           <TouchableOpacity onPress={handleSavePortfolio} style={styles.saveButton}>
             <MaterialIcons name="save" size={wp('5%')} color="#FFFFFF" />

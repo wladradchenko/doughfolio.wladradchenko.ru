@@ -135,6 +135,63 @@ export function getCategoryEducation(category: string): EducationCard | null {
   return categoryExplanations[category] || null;
 }
 
+// GitHub metrics explanations
+export const githubMetricsEducation: Record<string, EducationCard> = {
+  'stars': {
+    id: 'github-stars',
+    title: 'What are GitHub Stars?',
+    description: 'Stars indicate the popularity of a repository. When users "star" a project, they bookmark it to follow updates. More stars generally mean higher community interest and trust in the project. Popular projects often have thousands or tens of thousands of stars.',
+    icon: 'info',
+  },
+  'forks': {
+    id: 'github-forks',
+    title: 'What are GitHub Forks?',
+    description: 'Forks are copies of a repository that developers create to experiment or contribute. A high fork count shows active community engagement and interest in building upon the project. It indicates that developers are actively working with the codebase.',
+    icon: 'info',
+  },
+  'contributors': {
+    id: 'github-contributors',
+    title: 'What are Contributors?',
+    description: 'Contributors are developers who have made commits to the repository. More contributors typically mean a more active and collaborative development process. A diverse contributor base can indicate a healthy, community-driven project rather than a single-person effort.',
+    icon: 'info',
+  },
+  'language': {
+    id: 'github-language',
+    title: 'What is the Primary Language?',
+    description: 'The primary programming language shows what technology stack the project uses. This helps assess the project\'s technical foundation, developer community size, and potential for long-term maintenance. Popular languages like JavaScript, Python, or Rust have larger developer communities.',
+    icon: 'lightbulb',
+  },
+  'last-update': {
+    id: 'github-last-update',
+    title: 'What does Last Update mean?',
+    description: 'The last commit date shows when the repository was last actively developed. Recent updates indicate active maintenance and ongoing development. Projects with very old last updates might be abandoned or inactive, which could be a red flag for long-term viability.',
+    icon: 'help',
+  },
+  'watchers': {
+    id: 'github-watchers',
+    title: 'What are Watchers?',
+    description: 'Watchers are users who follow a repository to receive notifications about changes. A high watcher count indicates active interest in project updates. Watchers are typically more engaged than casual stargazers, showing genuine interest in the project\'s development.',
+    icon: 'info',
+  },
+  'open-issues': {
+    id: 'github-open-issues',
+    title: 'What are Open Issues?',
+    description: 'Open issues represent bugs, feature requests, or questions that need attention. Some open issues are normal and show active community engagement. However, a very high number of unresolved issues might indicate maintenance problems or lack of developer resources.',
+    icon: 'help',
+  },
+  'license': {
+    id: 'github-license',
+    title: 'What is a License?',
+    description: 'A license defines the legal terms for using, modifying, and distributing the code. Open-source licenses (like MIT, Apache) allow free use, while proprietary licenses restrict usage. A clear license is important for transparency and legal clarity in crypto projects.',
+    icon: 'info',
+  },
+};
+
+// Get education card for a GitHub metric
+export function getGitHubMetricEducation(metricKey: string): EducationCard | null {
+  return githubMetricsEducation[metricKey] || null;
+}
+
 // Get random education tip
 export function getRandomEducationTip(): EducationCard {
   const tips = generalEducationTips;

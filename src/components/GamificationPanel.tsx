@@ -108,11 +108,20 @@ const LatestBake = ({ portfolio }: { portfolio: Holding[] }) => {
     );
   }
 
+  // Убираем дубликаты по символу, оставляя только первые 3 уникальных
+  const seen = new Set<string>();
+  const uniquePortfolio = portfolio.filter(holding => {
+    const key = holding.symbol?.toLowerCase() || holding.name?.toLowerCase() || '';
+    if (seen.has(key) || !key) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 3);
+
   return (
     <View style={styles.latestCard}>
       <Text style={styles.sectionTitle}>Latest Bake</Text>
-      {portfolio.map(holding => (
-        <View key={holding.symbol} style={styles.holdingRow}>
+      {uniquePortfolio.map((holding, index) => (
+        <View key={`${holding.symbol}-${holding.name}-${index}`} style={styles.holdingRow}>
           <View style={[styles.colorDot, { backgroundColor: holding.color }]} />
           <Text style={styles.holdingName}>
             {holding.name} ({holding.symbol?.toUpperCase()})

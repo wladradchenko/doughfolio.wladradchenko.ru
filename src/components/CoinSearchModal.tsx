@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { widthPercentageToDP as wp, heightPercentageToDP as hp } from 'react-native-responsive-screen';
+import { getCachedSearchResults, cacheSearchResults } from '../utils/coinCache';
 
 interface CoinSearchResult {
   id: string;
@@ -54,15 +55,47 @@ export const CoinSearchModal = ({ visible, onClose, onSelectCoins, selectedCoins
 
     setLoading(true);
     try {
+      // Извлекаем первые 2 буквы для кеширования
+      const prefix = query.substring(0, 2).toLowerCase();
+      
+      // Проверяем кеш для первых 2 букв
+      const cachedResults = await getCachedSearchResults(prefix);
+      
+      if (cachedResults && cachedResults.length > 0) {
+        // Если есть кеш, фильтруем результаты локально
+        const filtered = cachedResults.filter(coin => {
+          const name = (coin.name || '').toLowerCase();
+          const symbol = (coin.symbol || '').toLowerCase();
+          const queryLower = query.toLowerCase();
+          return name.includes(queryLower) || symbol.includes(queryLower);
+        });
+        
+        setSearchResults(filtered.slice(0, 20));
+        setLoading(false);
+        return;
+      }
+      
+      // Если кеша нет, делаем запрос к API
       const response = await fetch(
-        `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(query)}`
+        `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(prefix)}`
       );
       
       if (response.ok) {
         const data = await response.json();
         if (data.coins && Array.isArray(data.coins)) {
+          // Кешируем результаты для первых 2 букв
+          await cacheSearchResults(prefix, data.coins);
+          
+          // Фильтруем результаты по полному запросу
+          const filtered = data.coins.filter((coin: any) => {
+            const name = (coin.name || '').toLowerCase();
+            const symbol = (coin.symbol || '').toLowerCase();
+            const queryLower = query.toLowerCase();
+            return name.includes(queryLower) || symbol.includes(queryLower);
+          });
+          
           // Ограничиваем до 20 результатов
-          setSearchResults(data.coins.slice(0, 20));
+          setSearchResults(filtered.slice(0, 20));
         } else {
           setSearchResults([]);
         }

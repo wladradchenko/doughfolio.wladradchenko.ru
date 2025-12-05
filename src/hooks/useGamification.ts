@@ -187,6 +187,36 @@ export const useGamification = () => {
         const stored = await AsyncStorage.getItem(STORAGE_KEY);
         if (stored) {
           const parsed: GamificationState = JSON.parse(stored);
+          
+          // Check for duplicates in lastPortfolio - if found, remove them
+          if (parsed.lastPortfolio && Array.isArray(parsed.lastPortfolio)) {
+            const seen = new Set<string>();
+            const hasDuplicates = parsed.lastPortfolio.some((item: any) => {
+              const key = (item.symbol || item.name || '').toLowerCase();
+              if (!key) return false;
+              if (seen.has(key)) return true; // Duplicate found
+              seen.add(key);
+              return false;
+            });
+            
+            // If duplicates found, remove them
+            if (hasDuplicates) {
+              console.warn('Duplicates detected in lastPortfolio, removing them');
+              const uniquePortfolio: any[] = [];
+              const seenKeys = new Set<string>();
+              parsed.lastPortfolio.forEach((item: any) => {
+                const key = (item.symbol || item.name || '').toLowerCase();
+                if (key && !seenKeys.has(key)) {
+                  seenKeys.add(key);
+                  uniquePortfolio.push(item);
+                }
+              });
+              parsed.lastPortfolio = uniquePortfolio;
+              // Save cleaned state
+              await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+            }
+          }
+          
           setState(sanitizeState(parsed));
         }
       } catch (error) {
@@ -281,7 +311,16 @@ export const useGamification = () => {
           lastImpact: impact,
         };
 
-        const lastPortfolio: HoldingSnapshot[] = portfolio
+        // Убираем дубликаты по символу перед сохранением
+        const seenSymbols = new Set<string>();
+        const uniquePortfolio = portfolio.filter(item => {
+          const symbol = (item.symbol ?? '').toLowerCase();
+          if (!symbol || seenSymbols.has(symbol)) return false;
+          seenSymbols.add(symbol);
+          return true;
+        });
+        
+        const lastPortfolio: HoldingSnapshot[] = uniquePortfolio
           .slice(0, 3)
           .map(item => ({
             name: item.name ?? '',

@@ -15,6 +15,8 @@ import { Canvas, Path, Skia, Text as SkiaText, useFont, Line, Rect } from '@shop
 import { widthPercentageToDP as wp, heightPercentageToDP as hp } from 'react-native-responsive-screen';
 import { EducationCard } from './EducationCard';
 import { getCategoryEducation, getRandomEducationTip } from '../utils/cryptoEducation';
+import { GitHubMetricsPanel } from './GitHubMetricsPanel';
+import { getCachedCoinDetails, cacheCoinDetails, getCachedChartData, cacheChartData } from '../utils/coinCache';
 import {
   calculateTechnicalIndicators,
   formatIndicator,
@@ -343,7 +345,7 @@ export const CoinDetailsModal = ({
   coinImage,
   onClose,
 }: Props) => {
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Changed: no longer blocking
   const [chartLoading, setChartLoading] = useState(false);
   const [chartRequested, setChartRequested] = useState(false);
   const [coinDetails, setCoinDetails] = useState<CoinDetails | null>(null);
@@ -352,25 +354,47 @@ export const CoinDetailsModal = ({
   const [retryCount, setRetryCount] = useState(0);
   const [isRetrying, setIsRetrying] = useState(false);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [dataRetryCount, setDataRetryCount] = useState(0);
+  const [isRetryingData, setIsRetryingData] = useState(false);
+  const dataRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectedEducationCard, setSelectedEducationCard] = useState<string | null>(null);
   const [randomTip] = useState(() => getRandomEducationTip());
+  const [loadingDescription, setLoadingDescription] = useState(true);
+  const [loadingLinks, setLoadingLinks] = useState(true);
+  const [githubDataLoaded, setGithubDataLoaded] = useState(false); // Track if GitHub data was successfully loaded
 
   useEffect(() => {
     if (visible && coinId) {
+      // Initialize with basic info immediately
+      setCoinDetails({
+        id: coinId,
+        name: coinName,
+        symbol: coinSymbol,
+        image: coinImage,
+      });
       loadCoinData();
     } else {
       // Сбрасываем данные при закрытии
       setCoinDetails(null);
       setChartData([]);
       setFullChartData([]);
-      setLoading(true);
+      setLoading(false);
       setChartLoading(false);
       setChartRequested(false);
       setRetryCount(0);
       setIsRetrying(false);
+      setDataRetryCount(0);
+      setIsRetryingData(false);
+      setLoadingDescription(true);
+      setLoadingLinks(true);
+      setGithubDataLoaded(false);
       if (retryTimerRef.current) {
         clearTimeout(retryTimerRef.current);
         retryTimerRef.current = null;
+      }
+      if (dataRetryTimerRef.current) {
+        clearTimeout(dataRetryTimerRef.current);
+        dataRetryTimerRef.current = null;
       }
     }
 
@@ -380,12 +404,16 @@ export const CoinDetailsModal = ({
         clearTimeout(retryTimerRef.current);
         retryTimerRef.current = null;
       }
+      if (dataRetryTimerRef.current) {
+        clearTimeout(dataRetryTimerRef.current);
+        dataRetryTimerRef.current = null;
+      }
     };
   }, [visible, coinId]);
 
   const loadChartWithRetry = async (attempt: number = 0) => {
     const maxRetries = 5;
-    const retryDelay = 60000; // 30 секунд
+    const retryDelay = 60000; // 60 секунд
 
     if (attempt >= maxRetries) {
       setChartLoading(false);
@@ -395,6 +423,23 @@ export const CoinDetailsModal = ({
     }
 
     try {
+      // Check cache first
+      if (attempt === 0) {
+        const cachedData = await getCachedChartData(coinId);
+        if (cachedData && cachedData.length > 0) {
+          setFullChartData(cachedData);
+          // Simplify cached data
+          const maxPoints = 100;
+          const step = Math.max(1, Math.floor(cachedData.length / maxPoints));
+          const simplifiedPrices = cachedData.filter((_, index) => index % step === 0);
+          setChartData(simplifiedPrices);
+          setChartLoading(false);
+          setIsRetrying(false);
+          setRetryCount(0);
+          return;
+        }
+      }
+
       setChartLoading(true);
       setIsRetrying(attempt > 0);
       setRetryCount(attempt);
@@ -414,6 +459,8 @@ export const CoinDetailsModal = ({
           const step = Math.max(1, Math.floor(allPrices.length / maxPoints));
           const simplifiedPrices = allPrices.filter((_, index) => index % step === 0);
           setChartData(simplifiedPrices);
+          // Cache the chart data
+          await cacheChartData(coinId, allPrices);
           setChartLoading(false);
           setIsRetrying(false);
           setRetryCount(0);
@@ -442,42 +489,132 @@ export const CoinDetailsModal = ({
     }
   };
 
-  const loadCoinData = async () => {
-    setLoading(true);
-    setChartLoading(false);
-    setChartRequested(false);
-    setRetryCount(0);
-    setIsRetrying(false);
+  const loadCoinDataWithRetry = async (attempt: number = 0) => {
+    const maxRetries = 5;
+    const retryDelay = 60000; // 60 секунд
+
+    if (attempt >= maxRetries) {
+      setLoadingDescription(false);
+      setLoadingLinks(false);
+      setIsRetryingData(false);
+      return;
+    }
 
     try {
-      // Сначала загружаем детали монеты (быстро) - показываем UI сразу
+      // Check cache first (only on first attempt)
+      if (attempt === 0) {
+        const cachedDetails = await getCachedCoinDetails(coinId);
+        if (cachedDetails) {
+          setCoinDetails({
+            id: cachedDetails.id,
+            name: cachedDetails.name,
+            symbol: cachedDetails.symbol,
+            image: cachedDetails.image,
+            description: cachedDetails.description,
+            categories: cachedDetails.categories,
+            homepage: cachedDetails.homepage,
+            blockchain_site: cachedDetails.blockchain_site,
+            github: cachedDetails.github,
+          });
+          setLoadingDescription(false);
+          setLoadingLinks(false);
+          // Still try to load GitHub data if GitHub URL exists
+          if (cachedDetails.github) {
+            // GitHub data will be loaded by GitHubMetricsPanel component
+            setGithubDataLoaded(true); // Mark as available (will be validated by component)
+          }
+          return; // Use cached data, no need to fetch
+        }
+      }
+
+      setIsRetryingData(attempt > 0);
+      setDataRetryCount(attempt);
+
       const detailsResponse = await fetch(
         `https://api.coingecko.com/api/v3/coins/${coinId}?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false&sparkline=false`
       );
 
       if (detailsResponse.ok) {
         const details = await detailsResponse.json();
-        setCoinDetails({
-          id: details.id,
-          name: details.name,
-          symbol: details.symbol,
-          image: details.image?.large || coinImage,
-          description: details.description?.en?.substring(0, 300) + '...',
-          categories: details.categories || [],
-          homepage: details.links?.homepage?.[0],
-          blockchain_site: details.links?.blockchain_site?.filter((s: string) => s) || [],
-          github: details.links?.repos_url?.github?.[0],
-        });
+        const description = details.description?.en;
+        const hasDescription = description && description.length > 0;
+        const hasLinks = 
+          details.links?.homepage?.[0] || 
+          details.links?.repos_url?.github?.[0] ||
+          (details.links?.blockchain_site?.filter((s: string) => s) || []).length > 0;
+
+        // Проверяем, что данные действительно пришли
+        if (hasDescription || hasLinks || details.categories?.length > 0) {
+          const newDetails: CoinDetails = {
+            id: details.id,
+            name: details.name,
+            symbol: details.symbol,
+            image: details.image?.large || coinImage,
+            description: description ? description.substring(0, 300) + '...' : undefined,
+            categories: details.categories || [],
+            homepage: details.links?.homepage?.[0],
+            blockchain_site: details.links?.blockchain_site?.filter((s: string) => s) || [],
+            github: details.links?.repos_url?.github?.[0],
+          };
+          setCoinDetails(newDetails);
+          // Cache the details
+          await cacheCoinDetails(coinId, newDetails);
+          setLoadingDescription(false);
+          setLoadingLinks(false);
+          setIsRetryingData(false);
+          setDataRetryCount(0);
+          // GitHub data will be loaded by GitHubMetricsPanel component
+          if (newDetails.github) {
+            setGithubDataLoaded(true); // Mark as available (will be validated by component)
+          }
+          return;
+        } else {
+          // Данные неполные (возможно rate limit) - повторяем
+          if (attempt < maxRetries - 1) {
+            dataRetryTimerRef.current = setTimeout(() => {
+              loadCoinDataWithRetry(attempt + 1);
+            }, retryDelay);
+            return;
+          }
+        }
       }
 
-      // UI уже показан, график загрузится только по запросу пользователя
-      setLoading(false);
+      // Если запрос не успешен (rate limit или другая ошибка)
+      if (detailsResponse.status === 429 || detailsResponse.status >= 500 || !detailsResponse.ok) {
+        // Повторяем через 60 секунд
+        if (attempt < maxRetries - 1) {
+          dataRetryTimerRef.current = setTimeout(() => {
+            loadCoinDataWithRetry(attempt + 1);
+          }, retryDelay);
+        } else {
+          // Превышен лимит попыток
+          setLoadingDescription(false);
+          setLoadingLinks(false);
+          setIsRetryingData(false);
+        }
+      } else {
+        // Другая ошибка
+        setLoadingDescription(false);
+        setLoadingLinks(false);
+        setIsRetryingData(false);
+      }
     } catch (error) {
       console.error('Failed to load coin data:', error);
-      setChartData([]);
-      setLoading(false);
-      setChartLoading(false);
+      // При ошибке сети тоже повторяем
+      dataRetryTimerRef.current = setTimeout(() => {
+        loadCoinDataWithRetry(attempt + 1);
+      }, retryDelay);
     }
+  };
+
+  const loadCoinData = async () => {
+    setChartLoading(false);
+    setChartRequested(false);
+    setRetryCount(0);
+    setIsRetrying(false);
+    setDataRetryCount(0);
+    setIsRetryingData(false);
+    loadCoinDataWithRetry(0);
   };
 
   const handleOpenLink = (url: string) => {
@@ -497,23 +634,34 @@ export const CoinDetailsModal = ({
             <MaterialIcons name="close" size={wp('6%')} color="#7A5B64" />
           </TouchableOpacity>
 
-          {loading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#FF6E76" />
-              <Text style={styles.loadingText}>Loading coin data...</Text>
-            </View>
-          ) : (
-            <ScrollView
-              contentContainerStyle={styles.content}
-              showsVerticalScrollIndicator={false}
-            >
-              {/* Header */}
-              <View style={styles.header}>
-                <View style={styles.coinInfo}>
-                  <Text style={styles.coinName}>{coinName}</Text>
-                  <Text style={styles.coinSymbol}>{coinSymbol.toUpperCase()}</Text>
-                </View>
+          <ScrollView
+            contentContainerStyle={styles.content}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Header */}
+            <View style={styles.header}>
+              <View style={styles.coinInfo}>
+                <Text style={styles.coinName}>{coinName}</Text>
+                <Text style={styles.coinSymbol}>{coinSymbol.toUpperCase()}</Text>
               </View>
+            </View>
+
+              {/* Retry indicator for coin data */}
+              {(isRetryingData || loadingDescription || loadingLinks) && (
+                <View style={styles.retryBanner}>
+                  <ActivityIndicator size="small" color="#FF6E76" />
+                  <Text style={styles.retryBannerText}>
+                    {isRetryingData 
+                      ? 'API rate limit reached. Waiting for limit reset...'
+                      : 'Loading description and links...'}
+                  </Text>
+                  {isRetryingData && (
+                    <Text style={styles.retryBannerSubtext}>
+                      Attempt {dataRetryCount + 1}/5 • Next try in 60s
+                    </Text>
+                  )}
+                </View>
+              )}
 
               {/* Chart */}
               {!chartRequested ? (
@@ -606,12 +754,21 @@ export const CoinDetailsModal = ({
               )}
 
               {/* Description */}
-              {coinDetails?.description && (
+              {loadingDescription ? (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>About</Text>
+                  <View style={styles.skeletonContainer}>
+                    <View style={styles.skeletonLine} />
+                    <View style={[styles.skeletonLine, { width: '90%' }]} />
+                    <View style={[styles.skeletonLine, { width: '85%' }]} />
+                  </View>
+                </View>
+              ) : coinDetails?.description ? (
                 <View style={styles.section}>
                   <Text style={styles.sectionTitle}>About</Text>
                   <Text style={styles.description}>{coinDetails.description}</Text>
                 </View>
-              )}
+              ) : null}
 
               {/* Links */}
               <View style={styles.section}>
@@ -624,33 +781,55 @@ export const CoinDetailsModal = ({
                   <Text style={styles.linkText}>View on CoinGecko</Text>
                 </TouchableOpacity>
 
-                {coinDetails?.homepage && (
-                  <TouchableOpacity
-                    style={styles.linkButton}
-                    onPress={() => handleOpenLink(coinDetails.homepage!)}
-                  >
-                    <MaterialIcons name="language" size={wp('4%')} color="#FF6E76" />
-                    <Text style={styles.linkText}>Official Website</Text>
-                  </TouchableOpacity>
-                )}
+                {loadingLinks ? (
+                  <View style={styles.skeletonLinkButton}>
+                    <View style={styles.skeletonIcon} />
+                    <View style={styles.skeletonLinkText} />
+                  </View>
+                ) : (
+                  <>
+                    {coinDetails?.homepage && (
+                      <TouchableOpacity
+                        style={styles.linkButton}
+                        onPress={() => handleOpenLink(coinDetails.homepage!)}
+                      >
+                        <MaterialIcons name="language" size={wp('4%')} color="#FF6E76" />
+                        <Text style={styles.linkText}>Official Website</Text>
+                      </TouchableOpacity>
+                    )}
 
-                {coinDetails?.github && (
-                  <TouchableOpacity
-                    style={styles.linkButton}
-                    onPress={() => handleOpenLink(coinDetails.github!)}
-                  >
-                    <MaterialIcons name="code" size={wp('4%')} color="#FF6E76" />
-                    <Text style={styles.linkText}>GitHub</Text>
-                  </TouchableOpacity>
+                    {/* Only show GitHub link if GitHub data was successfully loaded */}
+                    {/* Note: githubDataLoaded is set by GitHubMetricsPanel when data loads successfully */}
+                    {coinDetails?.github && githubDataLoaded && (
+                      <TouchableOpacity
+                        style={styles.linkButton}
+                        onPress={() => handleOpenLink(coinDetails.github!)}
+                      >
+                        <MaterialIcons name="code" size={wp('4%')} color="#FF6E76" />
+                        <Text style={styles.linkText}>GitHub</Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {/* GitHub Metrics - Compact version in Links panel */}
+                    {coinDetails?.github && (
+                      <GitHubMetricsPanel 
+                        githubUrl={coinDetails.github}
+                        compact={true}
+                        onDataLoaded={(success) => {
+                          // Update githubDataLoaded based on whether data was actually loaded
+                          setGithubDataLoaded(success);
+                        }}
+                      />
+                    )}
+                  </>
                 )}
               </View>
 
               {/* Random Education Tip */}
-              <View style={styles.section}>
-                <EducationCard card={randomTip} />
-              </View>
-            </ScrollView>
-          )}
+            <View style={styles.section}>
+              <EducationCard card={randomTip} />
+            </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -785,6 +964,60 @@ const styles = StyleSheet.create({
     color: '#9B59B6',
     textAlign: 'center',
     fontStyle: 'italic',
+  },
+  retryBanner: {
+    backgroundColor: '#FFF3F6',
+    borderRadius: 12,
+    padding: wp('3%'),
+    marginBottom: hp('2%'),
+    flexDirection: 'column',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FFE4E8',
+  },
+  retryBannerText: {
+    fontSize: wp('3.2%'),
+    color: '#FF6E76',
+    fontWeight: '600',
+    marginTop: hp('1%'),
+    textAlign: 'center',
+  },
+  retryBannerSubtext: {
+    fontSize: wp('2.8%'),
+    color: '#9B9B9B',
+    marginTop: hp('0.5%'),
+    textAlign: 'center',
+  },
+  skeletonContainer: {
+    marginTop: hp('1%'),
+  },
+  skeletonLine: {
+    height: wp('3%'),
+    backgroundColor: '#E9ECEF',
+    borderRadius: 4,
+    marginBottom: hp('0.8%'),
+    width: '100%',
+  },
+  skeletonLinkButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    padding: hp('1.2%'),
+    borderRadius: 12,
+    marginBottom: hp('0.8%'),
+    gap: wp('2%'),
+  },
+  skeletonIcon: {
+    width: wp('4%'),
+    height: wp('4%'),
+    backgroundColor: '#E9ECEF',
+    borderRadius: 4,
+  },
+  skeletonLinkText: {
+    width: wp('30%'),
+    height: wp('3.5%'),
+    backgroundColor: '#E9ECEF',
+    borderRadius: 4,
   },
   chartLabels: {
     flexDirection: 'row',

@@ -1,4 +1,4 @@
-import {StyleSheet, Text, Image, View, useWindowDimensions, Linking, TouchableOpacity} from 'react-native';
+import {StyleSheet, Text, Image, View, useWindowDimensions, Linking, TouchableOpacity, ActivityIndicator} from 'react-native';
 import React from 'react';
 import Animated, {FadeInDown, FadeOutDown} from 'react-native-reanimated';
 import { widthPercentageToDP as wp, heightPercentageToDP as hp } from 'react-native-responsive-screen';
@@ -23,6 +23,7 @@ type Props = {
   onPress?: (item: Data) => void;
   onRemove?: () => void;
   showRemoveButton?: boolean;
+  isLoading?: boolean;
 };
 
 const getRandomRotation = () => {
@@ -31,7 +32,7 @@ const getRandomRotation = () => {
 };
 
 
-const RenderItem = ({item, index, donutImages, onPress, onRemove, showRemoveButton}: Props) => {
+const RenderItem = ({item, index, donutImages, onPress, onRemove, showRemoveButton, isLoading = false}: Props) => {
   const {width} = useWindowDimensions();
   const donutImage = donutImages[index % donutImages.length]
   const handlePress = () => {
@@ -84,9 +85,20 @@ const RenderItem = ({item, index, donutImages, onPress, onRemove, showRemoveButt
               />
               <Text style={[{ width: wp('45.45%'), color: 'black', fontSize: wp('5.09%') }]} numberOfLines={1} ellipsizeMode="tail">{item.name}</Text>
             </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}>
-              <Text style={styles.text}>{item.percentage}%</Text>
-              <Text style={[styles.text, {color: '#FF6E76'}]}>${item.value}</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+              {isLoading ? (
+                <>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: wp('2%') }}>
+                    <ActivityIndicator size="small" color="#FF6E76" />
+                    <Text style={[styles.text, {fontSize: wp('3.5%'), color: '#666'}]}>Loading price data...</Text>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.text}>{item.percentage}%</Text>
+                  <Text style={[styles.text, {color: '#FF6E76'}]}>${item.value}</Text>
+                </>
+              )}
             </View>
           </View>
         </View>
