@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { TouchableOpacity, Text, StyleSheet, Alert, Modal, View } from 'react-native';
+import { TouchableOpacity, Text, StyleSheet, Alert, Modal, Dimensions, StatusBar, Platform, View } from 'react-native';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -119,6 +119,8 @@ export const ShareButton = ({ data, totalValue }: ShareButtonProps) => {
     }
   };
 
+  const screenData = Dimensions.get('screen');
+
   return (
     <>
       <TouchableOpacity onPress={() => setModalVisible(true)} style={styles.button}>
@@ -129,10 +131,12 @@ export const ShareButton = ({ data, totalValue }: ShareButtonProps) => {
       <Modal
         visible={modalVisible}
         transparent
-        animationType="fade"
+        animationType="slide"
+        statusBarTranslucent={true}
         onRequestClose={() => setModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
+        <StatusBar hidden={Platform.OS === 'android'} />
+        <View style={[styles.modalOverlay, { width: screenData.width, height: screenData.height }]}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Export Portfolio</Text>
@@ -206,7 +210,11 @@ const styles = StyleSheet.create({
     fontSize: wp('3.63%')
   },
   modalOverlay: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: 'rgba(255,216,223,0.7)',
     justifyContent: 'center',
     alignItems: 'center',

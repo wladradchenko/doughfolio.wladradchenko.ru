@@ -9,6 +9,9 @@ import {
   FlatList,
   ActivityIndicator,
   Image,
+  Dimensions,
+  StatusBar,
+  Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { widthPercentageToDP as wp, heightPercentageToDP as hp } from 'react-native-responsive-screen';
@@ -118,7 +121,7 @@ export const CoinSearchModal = ({ visible, onClose, onSelectCoins, selectedCoins
     return () => clearTimeout(timeoutId);
   }, [searchQuery, searchCoins]);
 
-  const toggleCoinSelection = (coin: CoinSearchResult) => {
+  const toggleCoinSelection = (coin: CoinSearchResult | SelectedCoin) => {
     const isSelected = localSelected.some(c => c.id === coin.id);
     
     if (isSelected) {
@@ -134,7 +137,7 @@ export const CoinSearchModal = ({ visible, onClose, onSelectCoins, selectedCoins
           id: coin.id,
           name: coin.name,
           symbol: coin.symbol,
-          image: coin.thumb,
+          image: 'thumb' in coin ? coin.thumb : coin.image,
           market_cap_rank: coin.market_cap_rank,
         },
       ]);
@@ -155,14 +158,21 @@ export const CoinSearchModal = ({ visible, onClose, onSelectCoins, selectedCoins
     return localSelected.some(c => c.id === coinId);
   };
 
+  const screenData = Dimensions.get('screen');
+  
   return (
     <Modal
       visible={visible}
       transparent
       animationType="slide"
       onRequestClose={onClose}
+      statusBarTranslucent={true}
     >
-      <View style={styles.overlay}>
+      <StatusBar hidden={Platform.OS === 'android'} />
+      <View style={[styles.overlay, { 
+        width: screenData.width, 
+        height: '100%',
+      }]}>
         <View style={styles.container}>
           {/* Header */}
           <View style={styles.header}>
@@ -310,8 +320,12 @@ export const CoinSearchModal = ({ visible, onClose, onSelectCoins, selectedCoins
 
 const styles = StyleSheet.create({
   overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,216,223,0.7)',
     justifyContent: 'flex-end',
   },
   container: {

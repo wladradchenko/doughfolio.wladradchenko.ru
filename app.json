@@ -2,7 +2,7 @@
   "expo": {
     "name": "Doughfolio",
     "slug": "doughfolio",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -14,12 +14,14 @@
     },
     "android": {
       "package": "ru.wladradchenko.doughfolio",
-      "versionCode": 4,
       "targetSdkVersion": 35,
       "permissions": [],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
+      },
+      "statusBar": {
+        "translucent": true
       }
     },
     "web": {
@@ -32,7 +34,8 @@
     },
     "plugins": [
       "expo-font"
-    ]
+    ],
+    "sdkVersion": "54.0.0",
+    "platforms": ["android"]
   }
 }
-

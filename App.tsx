@@ -14,7 +14,7 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import DonutChart from './src/components/DonutChart';
 import { useFont } from '@shopify/react-native-skia';
-import { useSharedValue, withTiming } from 'react-native-reanimated';
+import { useSharedValue, withTiming, useAnimatedReaction, runOnJS } from 'react-native-reanimated';
 import { calculatePercentage } from './src/utils/calculatePercentage';
 import { generateRandomNumbers } from './src/utils/generateRandomNumbers';
 import RenderItem from './src/components/RenderItem';
@@ -36,7 +36,6 @@ import { CoinDetailsModal } from './src/components/CoinDetailsModal';
 import { CoinSearchModal } from './src/components/CoinSearchModal';
 import { analyzeCategories } from './src/utils/analyzeCategories';
 import { calculatePortfolioMetrics } from './src/utils/portfolioMetrics';
-import { initializeNotifications, requestNotificationPermissions } from './src/utils/notifications';
 
 interface Data {
   id: string;
@@ -114,6 +113,7 @@ function generateRandomColor(count = 10) {
 }
 
 const DonutChartContainer = () => {
+
   const n = 8;
   const [data, setData] = useState<Data[]>([]);
   const [images, setImages] = useState<URL[]>([]);
@@ -121,6 +121,7 @@ const DonutChartContainer = () => {
   const decimals = useSharedValue<number[]>([]);
   const colors = generateRandomColor(n);
   const [amount, setAmount] = useState(1000); // State to manage the input value
+  const [displayTotalValue, setDisplayTotalValue] = useState(0); // State for displaying total value
   const { history, addToHistory, clearHistory, removeFromHistory } = useHistory();
   const [isHistoryVisible, setHistoryVisible] = useState(false);
   const [isPromptVisible, setPromptVisible] = useState(false);
@@ -131,7 +132,6 @@ const DonutChartContainer = () => {
   const [isArcadeExpanded, setArcadeExpanded] = useState(true);
   const [isCoinSearchVisible, setCoinSearchVisible] = useState(false);
   const [selectedCoins, setSelectedCoins] = useState<Array<{ id: string; name: string; symbol: string; image: string; market_cap_rank?: number }>>([]);
-  const [notificationsInitialized, setNotificationsInitialized] = useState(false);
   const [isFromHistory, setIsFromHistory] = useState(false);
   const [loadingCoins, setLoadingCoins] = useState<Array<{ id: string; name: string; symbol: string; image: string }>>([]);
   const selectedCoinsRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -151,17 +151,31 @@ const DonutChartContainer = () => {
     setImages(getShuffledDonutImages());
   }, []);
 
-  // Инициализация уведомлений при первом запуске
+  // Синхронизация shared value с обычным состоянием для использования в рендере
+  useAnimatedReaction(
+    () => totalValue.value,
+    (value) => {
+      runOnJS(setDisplayTotalValue)(value);
+    },
+    [totalValue]
+  );
+
+  // Синхронизация shared values с данными портфеля (после обновления данных)
   useEffect(() => {
-    if (!notificationsInitialized) {
-      requestNotificationPermissions().then((granted) => {
-        if (granted) {
-          initializeNotifications();
-        }
-        setNotificationsInitialized(true);
-      });
+    if (data.length > 0) {
+      const total = data.reduce((sum, item) => sum + item.value, 0);
+      const newDecimals = data.map(crypto => crypto.percentage / 100);
+      
+      // Обновляем shared values в следующем кадре, чтобы избежать предупреждений
+      const timeoutId = setTimeout(() => {
+        totalValue.value = withTiming(total, { duration: 500 });
+        decimals.value = newDecimals;
+      }, 0);
+      
+      return () => clearTimeout(timeoutId);
     }
-  }, [notificationsInitialized]);
+  }, [data]);
+
   const {
     missions,
     flavors,
@@ -207,11 +221,22 @@ const DonutChartContainer = () => {
     }
   }
 
-  // Функция для случайного выбора криптовалют
+  // Функция для случайного выбора криптовалют (без дубликатов)
   function getRandomCryptos(data, count = 10, maxIndex = 200) {
-    const minSlice = Math.floor(Math.random() * (maxIndex - count + 1));  // from 0 to 90
+    // Фильтруем дубликаты по id перед выбором
+    const uniqueData = [];
+    const seenIds = new Set<string>();
+    for (const item of data) {
+      if (item && item.id && !seenIds.has(item.id)) {
+        seenIds.add(item.id);
+        uniqueData.push(item);
+      }
+    }
+    
+    const availableCount = Math.min(uniqueData.length, maxIndex);
+    const minSlice = Math.floor(Math.random() * Math.max(0, availableCount - count + 1));
     const maxSlice = minSlice + count;
-    return data.slice(minSlice, maxSlice);
+    return uniqueData.slice(minSlice, maxSlice);
   }
 
   // Функция для получения данных монет по ID из CoinGecko с retry при rate limit
@@ -244,12 +269,23 @@ const DonutChartContainer = () => {
           // If we have a portfolio, add these coins to it
           setData(currentPortfolio => {
             if (currentPortfolio.length > 0 && data.length > 0) {
+              // Create a set of existing coin IDs to avoid duplicates
+              const existingIds = new Set(currentPortfolio.map(item => item.id));
+              
+              // Filter out coins that already exist in portfolio
+              const newCoinsData = data.filter(coin => !existingIds.has(coin.id));
+              
+              if (newCoinsData.length === 0) {
+                // All coins already exist, no need to update
+                return currentPortfolio;
+              }
+              
               // Calculate average value per coin in current portfolio
               const currentTotal = currentPortfolio.reduce((sum, item) => sum + item.value, 0);
               const avgValuePerCoin = currentTotal / currentPortfolio.length;
               
-              // Add loaded coins to current portfolio
-              const newCoins = data.map(coin => {
+              // Add only new coins to current portfolio
+              const newCoins = newCoinsData.map(coin => {
                 const value = avgValuePerCoin;
                 return {
                   id: coin.id,
@@ -264,7 +300,7 @@ const DonutChartContainer = () => {
                 };
               });
               
-              // Update portfolio with new coins
+              // Update portfolio with new coins (no duplicates)
               const updatedData = [...currentPortfolio, ...newCoins];
               const newTotal = updatedData.reduce((sum, item) => sum + item.value, 0);
               const recalculatedData = updatedData.map(item => ({
@@ -273,9 +309,7 @@ const DonutChartContainer = () => {
                 decimals: item.value / newTotal,
               }));
               
-              totalValue.value = withTiming(newTotal, { duration: 500 });
-              decimals.value = recalculatedData.map(crypto => crypto.percentage / 100);
-              
+              // Shared values will be updated by useEffect when data changes
               return recalculatedData;
             }
             return currentPortfolio;
@@ -312,10 +346,7 @@ const DonutChartContainer = () => {
 
    const handleHistorySelect = (item: any) => {
     setData(item.data);
-    // Обновляем totalValue через withTiming для плавной анимации
-    totalValue.value = withTiming(item.totalValue, { duration: 500 });
-    // Пересчитываем проценты
-    decimals.value = item.data.map(crypto => crypto.percentage / 100);
+    // Shared values will be updated by useEffect when data changes
     // Обновляем картинки при загрузке из истории
     setImages(getShuffledDonutImages());
     // Помечаем, что портфель загружен из истории
@@ -354,8 +385,7 @@ const DonutChartContainer = () => {
     });
 
     setData(recalculatedData);
-    totalValue.value = withTiming(newTotal, { duration: 500 });
-    decimals.value = recalculatedData.map(crypto => crypto.percentage / 100);
+    // Shared values will be updated by useEffect when data changes
   };
 
   // Function to handle slider value change
@@ -474,9 +504,7 @@ const DonutChartContainer = () => {
         return 0;
       });
 
-      totalValue.value = withTiming(total, { duration: 1000 });
-
-      decimals.value = [...generateDecimals];
+      // Shared values will be updated by useEffect when data changes
 
       // Фильтруем валидные монеты и убираем дубликаты по id
       const seenIds = new Set<string>();
@@ -492,9 +520,11 @@ const DonutChartContainer = () => {
         return;
       }
       
-      // Генерируем массив объектов с данными
+      // Генерируем массив объектов с данными (убеждаемся что нет дубликатов)
       const arrayOfObjects = generateNumbers.map((value, index) => {
-        const crypto = validSelectedCryptos[index] || validSelectedCryptos[validSelectedCryptos.length - 1];
+        // Используем индекс по модулю, чтобы избежать дубликатов при циклическом использовании
+        const cryptoIndex = index % validSelectedCryptos.length;
+        const crypto = validSelectedCryptos[cryptoIndex];
         if (!crypto || !crypto.id) {
           throw new Error('No valid cryptocurrency data available');
         }
@@ -523,9 +553,19 @@ const DonutChartContainer = () => {
         };
       });
 
+      // Убираем дубликаты из arrayOfObjects перед загрузкой категорий
+      const uniqueArrayOfObjects = [];
+      const seenCoinIds = new Set<string>();
+      for (const coin of arrayOfObjects) {
+        if (coin && coin.id && !seenCoinIds.has(coin.id)) {
+          seenCoinIds.add(coin.id);
+          uniqueArrayOfObjects.push(coin);
+        }
+      }
+      
       // Загружаем категории для каждой монеты (параллельно, но с ограничением)
       const coinsWithCategories = await Promise.all(
-        arrayOfObjects.map(async (coin) => {
+        uniqueArrayOfObjects.map(async (coin) => {
           try {
             const response = await fetch(
               `https://api.coingecko.com/api/v3/coins/${coin.id}?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false&sparkline=false`
@@ -565,7 +605,7 @@ const DonutChartContainer = () => {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
-        contentContainerStyle={{ alignItems: 'center', paddingBottom: hp('10%') }}
+        contentContainerStyle={{ alignItems: 'center', paddingBottom: hp('10%'), top: 0, bottom: 0 }}
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
         decelerationRate="normal"
@@ -581,21 +621,21 @@ const DonutChartContainer = () => {
             <Text style={styles.amountButtonText}>${amount.toLocaleString()}</Text>
             <MaterialIcons name="edit" size={wp('4%')} color="#FF6E76" />
           </TouchableOpacity>
-      </View>
+        </View>
 
-      <View style={{ flexDirection: 'row', justifyContent: 'center', padding: 10 }}>
-        <TouchableOpacity onPress={() => setHistoryVisible(true)} style={styles.historyButton}>
-          <MaterialIcons name="history" size={wp('5.09%')} color="#FF6E76" />
-          <Text style={styles.historyText}>History</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', justifyContent: 'center', padding: 10 }}>
+          <TouchableOpacity onPress={() => setHistoryVisible(true)} style={styles.historyButton}>
+            <MaterialIcons name="history" size={wp('5.09%')} color="#FF6E76" />
+            <Text style={styles.historyText}>History</Text>
+          </TouchableOpacity>
 
-        <ShareButton data={data} totalValue={totalValue.value} />
+          <ShareButton data={data} totalValue={displayTotalValue} />
 
-        <TouchableOpacity onPress={() => setPromptVisible(true)} style={styles.promptButton}>
-          <MaterialIcons name="info" size={wp('5.09%')} color="#FF6E76" />
-          <Text style={styles.promptText}>Prompt</Text>
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity onPress={() => setPromptVisible(true)} style={styles.promptButton}>
+            <MaterialIcons name="info" size={wp('5.09%')} color="#FF6E76" />
+            <Text style={styles.promptText}>Prompt</Text>
+          </TouchableOpacity>
+        </View>
 
         <View style={styles.chartContainer}>
           <DonutChart

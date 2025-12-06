@@ -9,6 +9,9 @@ import {
   ActivityIndicator,
   Linking,
   PanResponder,
+  Dimensions,
+  StatusBar,
+  Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Canvas, Path, Skia, Text as SkiaText, useFont, Line, Rect } from '@shopify/react-native-skia';
@@ -621,14 +624,21 @@ export const CoinDetailsModal = ({
     Linking.openURL(url).catch(err => console.error('Failed to open URL:', err));
   };
 
+  const screenData = Dimensions.get('screen');
+  
   return (
     <Modal
       visible={visible}
       transparent
       animationType="fade"
       onRequestClose={onClose}
+      statusBarTranslucent={true}
     >
-      <View style={styles.overlay}>
+      <StatusBar hidden={Platform.OS === 'android'} />
+      <View style={[styles.overlay, { 
+        width: screenData.width, 
+        height: screenData.height,
+      }]}>
         <View style={styles.container}>
           <TouchableOpacity onPress={onClose} style={styles.closeButton}>
             <MaterialIcons name="close" size={wp('6%')} color="#7A5B64" />
@@ -838,8 +848,12 @@ export const CoinDetailsModal = ({
 
 const styles = StyleSheet.create({
   overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,216,223,0.7)',
     justifyContent: 'center',
     alignItems: 'center',
   },

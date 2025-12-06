@@ -36,7 +36,7 @@ const DonutChart = ({
 
   const targetText = useDerivedValue(
     () => `$${Math.round(totalValue.value)}`,
-    [],
+    [totalValue],
   );
 
   const fontSize = font.measureText('$00');
@@ -45,7 +45,7 @@ const DonutChart = ({
   const textX = useDerivedValue(() => {
     const _fontSize = font.measureText(targetText.value);
     return radius - _fontSize.width / 2;
-  }, []);
+  }, [targetText, radius, font]);
 
   return (
     <View style={styles.container}>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ScrollView, View, Text, TouchableOpacity, Modal, StyleSheet, Alert, Linking } from 'react-native';
+import { ScrollView, View, Text, TouchableOpacity, Modal, StyleSheet, Alert, Linking, Dimensions, StatusBar, Platform } from 'react-native';
 import { widthPercentageToDP as wp, heightPercentageToDP as hp } from 'react-native-responsive-screen';
 import { MaterialIcons } from '@expo/vector-icons';
 import { formatNumber, safeToFixed } from '../utils/formatNumber';
@@ -144,9 +144,20 @@ export const PromptModal = ({ visible, data, onClose, onCopy }) => {
     { key: 'investment', label: 'Investment', desc: 'Investment advice' },
   ];
 
+  const screenData = Dimensions.get('screen');
+  
   return (
-    <Modal visible={visible} transparent animationType="slide">
-      <View style={styles.modalOverlay}>
+    <Modal 
+      visible={visible} 
+      transparent 
+      animationType="slide"
+      statusBarTranslucent={true}
+    >
+      <StatusBar hidden={Platform.OS === 'android'} />
+      <View style={[styles.modalOverlay, { 
+        width: screenData.width, 
+        height: screenData.height,
+      }]}>
         <View style={styles.modalContent}>
           <View style={styles.header}>
             <Text style={styles.title}>AI Analysis Prompt</Text>
@@ -250,7 +261,11 @@ export const PromptModal = ({ visible, data, onClose, onCopy }) => {
   
 const styles = StyleSheet.create({
   modalOverlay: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: 'rgba(255,216,223,0.7)',
     justifyContent: 'center',
     alignItems: 'center',

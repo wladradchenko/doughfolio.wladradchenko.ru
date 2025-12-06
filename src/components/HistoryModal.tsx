@@ -1,5 +1,5 @@
 // src/components/HistoryModal.tsx
-import { FlatList, View, Text, TouchableOpacity, Modal, StyleSheet, Alert, Image } from 'react-native';
+import { FlatList, View, Text, TouchableOpacity, Modal, StyleSheet, Alert, Image, Dimensions, StatusBar, Platform } from 'react-native';
 import { widthPercentageToDP as wp, heightPercentageToDP as hp } from 'react-native-responsive-screen';
 import { MaterialIcons } from '@expo/vector-icons';
 
@@ -43,9 +43,20 @@ export const HistoryModal = ({ visible, history, onClose, onSelect, onClear, onR
     );
   };
 
+  const screenData = Dimensions.get('screen');
+  
   return (
-    <Modal visible={visible} transparent animationType="slide">
-      <View style={styles.modalOverlay}>
+    <Modal 
+      visible={visible} 
+      transparent 
+      animationType="slide"
+      statusBarTranslucent={true}
+    >
+      <StatusBar hidden={Platform.OS === 'android'} />
+      <View style={[styles.modalOverlay, { 
+        width: screenData.width, 
+        height: screenData.height,
+      }]}>
         <View style={styles.modalContent}>
           <View style={styles.header}>
             <Text style={styles.title}>Saved Portfolios</Text>
@@ -135,7 +146,11 @@ export const HistoryModal = ({ visible, history, onClose, onSelect, onClear, onR
 
 const styles = StyleSheet.create({
   modalOverlay: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: 'rgba(255,216,223,0.7)',
     justifyContent: 'center',
     alignItems: 'center',

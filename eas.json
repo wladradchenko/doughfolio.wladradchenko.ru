@@ -1,6 +1,7 @@
 {
   "cli": {
-    "version": ">= 10.2.4"
+    "version": ">= 10.2.4",
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
@@ -12,8 +13,11 @@
     },
     "production": {
       "android": {
-        "buildType": "apk",
+        "buildType": "app-bundle",
         "gradleCommand": ":app:bundleRelease"
+      },
+      "env": {
+        "EXPO_PUBLIC_ENABLE_MINIFY": "true"
       }
     }
   },
@@ -21,4 +25,3 @@
     "production": {}
   }
 }
-
