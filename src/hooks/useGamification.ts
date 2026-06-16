@@ -59,6 +59,34 @@ type RegisterPayload = {
 
 const missionBlueprints: MissionBlueprint[] = [
   {
+    id: 'fresh-scout',
+    title: 'Fresh Scout',
+    description: 'Check today’s Fresh Batch of new coins.',
+    goal: 1,
+    reward: 'Fresh Glaze',
+  },
+  {
+    id: 'collector',
+    title: 'Collector',
+    description: 'Collect 2 new coins today.',
+    goal: 2,
+    reward: 'Sprinkle Pack',
+  },
+  {
+    id: 'duelist',
+    title: 'Duelist',
+    description: 'Win a duel against a friend.',
+    goal: 1,
+    reward: 'Champion Glaze',
+  },
+  {
+    id: 'wild-catch',
+    title: 'Wild Catch',
+    description: 'Catch a coin on the radar.',
+    goal: 1,
+    reward: 'Wild Sprinkle',
+  },
+  {
     id: 'mix-master',
     title: 'Mix Master',
     description: 'Generate 3 fresh dough mixes today.',
@@ -357,6 +385,68 @@ export const useGamification = () => {
     [updateState],
   );
 
+  const registerDiscoveryVisit = useCallback(() => {
+    updateState(prev => {
+      const today = getTodayStamp();
+      let working = prev;
+
+      if (prev.lastReset !== today) {
+        const resetMissions = Object.keys(prev.missions).reduce((acc, missionId) => {
+          const mission = prev.missions[missionId];
+          acc[missionId] = { ...mission, progress: 0, completed: false };
+          return acc;
+        }, {} as Record<string, MissionState>);
+        working = { ...prev, missions: resetMissions, lastReset: today };
+      }
+
+      const mission = working.missions['fresh-scout'];
+      if (!mission || mission.completed) return working;
+
+      const progress = Math.min(mission.goal, mission.progress + 1);
+      return {
+        ...working,
+        missions: {
+          ...working.missions,
+          'fresh-scout': { ...mission, progress, completed: progress >= mission.goal },
+        },
+        xp: working.xp + 5,
+      };
+    });
+  }, [updateState]);
+
+  const bumpMission = useCallback(
+    (missionId: string, xpGain = 5) => {
+      updateState(prev => {
+        const today = getTodayStamp();
+        let working = prev;
+        if (prev.lastReset !== today) {
+          const resetMissions = Object.keys(prev.missions).reduce((acc, id) => {
+            const mission = prev.missions[id];
+            acc[id] = { ...mission, progress: 0, completed: false };
+            return acc;
+          }, {} as Record<string, MissionState>);
+          working = { ...prev, missions: resetMissions, lastReset: today };
+        }
+        const mission = working.missions[missionId];
+        if (!mission || mission.completed) return working;
+        const progress = Math.min(mission.goal, mission.progress + 1);
+        return {
+          ...working,
+          missions: {
+            ...working.missions,
+            [missionId]: { ...mission, progress, completed: progress >= mission.goal },
+          },
+          xp: working.xp + xpGain,
+        };
+      });
+    },
+    [updateState],
+  );
+
+  const registerCollect = useCallback(() => bumpMission('collector', 5), [bumpMission]);
+  const registerDuelWin = useCallback(() => bumpMission('duelist', 15), [bumpMission]);
+  const registerWildCatch = useCallback(() => bumpMission('wild-catch', 10), [bumpMission]);
+
   const boostWallet = useCallback(() => {
     updateState(prev => ({
       ...prev,
@@ -384,6 +474,10 @@ export const useGamification = () => {
     streakCount: state.streakCount,
     lastPortfolio: state.lastPortfolio,
     registerMixEvent,
+    registerDiscoveryVisit,
+    registerCollect,
+    registerDuelWin,
+    registerWildCatch,
     resetGamification,
     boostWallet,
   };

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, DimensionValue } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { widthPercentageToDP as wp, heightPercentageToDP as hp } from 'react-native-responsive-screen';
 import type { MissionState } from '../hooks/useGamification';
@@ -34,7 +34,7 @@ type Props = {
 };
 
 const MissionRow = ({ mission }: { mission: MissionState }) => {
-  const progressWidth = `${(mission.progress / mission.goal) * 100}%`;
+  const progressWidth = `${(mission.progress / mission.goal) * 100}%` as DimensionValue;
   return (
     <View style={styles.missionRow}>
       <View style={styles.missionHeader}>

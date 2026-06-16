@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { TouchableOpacity, Text, StyleSheet, Alert, Modal, Dimensions, StatusBar, Platform, View } from 'react-native';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useCanvasRef } from '@shopify/react-native-skia';
 import { widthPercentageToDP as wp, heightPercentageToDP as hp } from 'react-native-responsive-screen';
 import { formatNumber, safeToFixed } from '../utils/formatNumber';
+import { ShareCard } from './ShareCard';
 
 interface Data {
   name: string;
@@ -24,6 +26,47 @@ type ShareButtonProps = {
 
 export const ShareButton = ({ data, totalValue }: ShareButtonProps) => {
   const [modalVisible, setModalVisible] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const canvasRef = useCanvasRef();
+
+  const handleShareImage = async () => {
+    try {
+      if (!data || data.length === 0) {
+        Alert.alert('Error', 'Generate a portfolio first');
+        return;
+      }
+      setExporting(true);
+      // Give the offscreen Skia canvas a moment to load fonts and draw.
+      await new Promise(resolve => setTimeout(resolve, 450));
+
+      const image = await canvasRef.current?.makeImageSnapshotAsync();
+      if (!image) {
+        Alert.alert('Error', 'Could not render the image. Please try again.');
+        return;
+      }
+      const base64 = image.encodeToBase64();
+      const fileUri = `${FileSystem.cacheDirectory}doughfolio_${Date.now()}.png`;
+      await FileSystem.writeAsStringAsync(fileUri, base64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      if (!(await Sharing.isAvailableAsync())) {
+        Alert.alert('Error', 'The "Share" function is not available');
+        return;
+      }
+      await Sharing.shareAsync(fileUri, {
+        mimeType: 'image/png',
+        dialogTitle: 'Share your donut',
+        UTI: 'public.png',
+      });
+      setModalVisible(false);
+    } catch (error) {
+      console.error('Image sharing failed:', error);
+      Alert.alert('Error', 'Failed to export image');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const handleShare = async (format: 'text' | 'json' | 'csv') => {
     try {
@@ -148,6 +191,22 @@ export const ShareButton = ({ data, totalValue }: ShareButtonProps) => {
             <Text style={styles.modalSubtitle}>Choose export format:</Text>
 
             <TouchableOpacity
+              style={[styles.formatButton, styles.imageButton]}
+              onPress={handleShareImage}
+              disabled={exporting}
+            >
+              <MaterialIcons name="image" size={wp('6%')} color="#FFFFFF" />
+              <View style={styles.formatButtonText}>
+                <Text style={[styles.formatButtonTitle, styles.imageButtonTitle]}>
+                  {exporting ? 'Baking image…' : 'Image (PNG)'}
+                </Text>
+                <Text style={[styles.formatButtonDesc, styles.imageButtonDesc]}>
+                  A cute card to post on Stories / Twitter / Telegram
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
               style={styles.formatButton}
               onPress={() => handleShare('text')}
             >
@@ -182,6 +241,13 @@ export const ShareButton = ({ data, totalValue }: ShareButtonProps) => {
           </View>
         </View>
       </Modal>
+
+      {/* Offscreen Skia card — mounted while the share sheet is open so it can be snapshotted to PNG. */}
+      {modalVisible && data.length > 0 && (
+        <View style={styles.offscreenCard} pointerEvents="none">
+          <ShareCard canvasRef={canvasRef} data={data} totalValue={totalValue} />
+        </View>
+      )}
     </>
   );
 };
@@ -269,5 +335,22 @@ const styles = StyleSheet.create({
   formatButtonDesc: {
     fontSize: wp('3.2%'),
     color: '#666',
+  },
+  imageButton: {
+    backgroundColor: '#FF6E76',
+    borderColor: '#FF6E76',
+  },
+  imageButtonTitle: {
+    color: '#FFFFFF',
+  },
+  imageButtonDesc: {
+    color: '#FFE4E8',
+  },
+  offscreenCard: {
+    position: 'absolute',
+    left: -10000,
+    top: 0,
+    width: 340,
+    height: 420,
   },
 });

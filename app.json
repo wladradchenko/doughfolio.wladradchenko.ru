@@ -2,7 +2,7 @@
   "expo": {
     "name": "Doughfolio",
     "slug": "doughfolio",
-    "version": "2.0.1",
+    "version": "2.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -33,7 +33,19 @@
       }
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "color": "#FF6E76"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Doughfolio uses your location to show collectible coins on the radar near you. Foreground only — never in the background."
+        }
+      ]
     ],
     "sdkVersion": "54.0.0",
     "platforms": ["android"]

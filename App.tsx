@@ -34,6 +34,9 @@ import { AmountModal } from './src/components/AmountModal';
 import { PortfolioInsights } from './src/components/PortfolioInsights';
 import { CoinDetailsModal } from './src/components/CoinDetailsModal';
 import { CoinSearchModal } from './src/components/CoinSearchModal';
+import { DiscoveryModal } from './src/components/DiscoveryModal';
+import { AlertsModal } from './src/components/AlertsModal';
+import { useAlerts } from './src/hooks/useAlerts';
 import { analyzeCategories } from './src/utils/analyzeCategories';
 import { calculatePortfolioMetrics } from './src/utils/portfolioMetrics';
 
@@ -180,6 +183,10 @@ const DonutChartContainer = () => {
     missions,
     flavors,
     registerMixEvent,
+    registerDiscoveryVisit,
+    registerCollect,
+    registerDuelWin,
+    registerWildCatch,
     resetGamification,
     totalMixes,
     dailyMixes,
@@ -190,6 +197,26 @@ const DonutChartContainer = () => {
     boostWallet,
     lastPortfolio,
   } = useGamification();
+
+  const {
+    dailyReminderEnabled,
+    dailyHour,
+    dailyMinute,
+    moveThreshold,
+    watchlist,
+    isWatched,
+    toggleWatch,
+    setDailyReminder,
+    setMoveThreshold,
+  } = useAlerts();
+
+  const [isDiscoveryVisible, setDiscoveryVisible] = useState(false);
+  const [isAlertsVisible, setAlertsVisible] = useState(false);
+
+  const openDiscovery = () => {
+    setDiscoveryVisible(true);
+    registerDiscoveryVisit();
+  };
 
   // Функция для получения данных с CoinGecko API
   async function fetchCryptoData() {
@@ -612,6 +639,25 @@ const DonutChartContainer = () => {
         snapToAlignment="start"
         snapToInterval={undefined}
       >
+        <View style={styles.discoverRow}>
+          <TouchableOpacity style={styles.discoverButton} onPress={openDiscovery} activeOpacity={0.85}>
+            <MaterialIcons name="donut-large" size={wp('7%')} color="#FFFFFF" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.discoverTitle}>Discover Fresh Coins</Text>
+              <Text style={styles.discoverSubtitle}>New & trending coins</Text>
+            </View>
+            <MaterialIcons name="chevron-right" size={wp('6%')} color="#FFFFFF" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.bellButton} onPress={() => setAlertsVisible(true)}>
+            <MaterialIcons name="notifications-none" size={wp('6%')} color="#FF6E76" />
+            {watchlist.length > 0 && (
+              <View style={styles.bellBadge}>
+                <Text style={styles.bellBadgeText}>{watchlist.length}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+
         <View style={[styles.general]}>
           <Text style={[styles.label, {color: 'black'}]}>Portfolio amount:</Text>
           <TouchableOpacity
@@ -787,6 +833,29 @@ const DonutChartContainer = () => {
         onSelectCoins={(coins) => setSelectedCoins(coins)}
         selectedCoins={selectedCoins}
       />
+
+      <DiscoveryModal
+        visible={isDiscoveryVisible}
+        onClose={() => setDiscoveryVisible(false)}
+        isWatched={isWatched}
+        onToggleWatch={toggleWatch}
+        onCollectNew={registerCollect}
+        onDuelWin={registerDuelWin}
+        onWildCatch={registerWildCatch}
+      />
+
+      <AlertsModal
+        visible={isAlertsVisible}
+        onClose={() => setAlertsVisible(false)}
+        dailyReminderEnabled={dailyReminderEnabled}
+        dailyHour={dailyHour}
+        dailyMinute={dailyMinute}
+        moveThreshold={moveThreshold}
+        watchlist={watchlist}
+        onSetDailyReminder={setDailyReminder}
+        onSetMoveThreshold={setMoveThreshold}
+        onToggleWatch={toggleWatch}
+      />
     </SafeAreaView>
   );
 };
@@ -942,6 +1011,69 @@ const styles = StyleSheet.create({
   saveButtonText: {
     color: '#FFFFFF',
     fontSize: wp('4.5%'),
+    fontWeight: 'bold',
+  },
+  discoverRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    marginTop: hp('6.5%'),
+    marginBottom: hp('1%'),
+    paddingHorizontal: wp('6%'),
+    gap: wp('2.5%'),
+    width: '100%',
+  },
+  discoverButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FF6E76',
+    borderRadius: 18,
+    paddingVertical: hp('1.1%'),
+    paddingHorizontal: wp('4%'),
+    gap: wp('3%'),
+    shadowColor: '#9B8084',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  discoverTitle: {
+    color: '#FFFFFF',
+    fontSize: wp('4.2%'),
+    fontWeight: 'bold',
+  },
+  discoverSubtitle: {
+    color: '#FFE4E8',
+    fontSize: wp('3%'),
+    marginTop: hp('0.1%'),
+  },
+  bellButton: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    paddingHorizontal: wp('4%'),
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#9B8084',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  bellBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: '#FFB300',
+    borderRadius: 10,
+    minWidth: wp('4.5%'),
+    height: wp('4.5%'),
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  bellBadgeText: {
+    color: '#FFFFFF',
+    fontSize: wp('2.6%'),
     fontWeight: 'bold',
   },
 });
